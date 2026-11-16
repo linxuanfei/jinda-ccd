@@ -1,0 +1,40 @@
+{
+  "results_root": "results",
+  "csv_enabled": true,
+  "save_ng_images": true,
+  "save_ok_images": false,
+  "last_recipe": "recipes/sim_demo.json",
+  "last_source": {
+    "kind": "synthetic",
+    "path": "",
+    "url": "rtsp://10.239.136.1:8554/live",
+    "index": 0
+  },
+  "output": {
+    "enabled": false,
+    "channel": {
+      "kind": "file",
+      "path": "results/output.log",
+      "port": "COM3",
+      "baud": 115200,
+      "host": "127.0.0.1",
+      "tcp_port": 5000
+    },
+    "template": "{time},{verdict},{frame},{pitch}\r\n",
+    "encoding": "gbk",
+    "on_ok": true,
+    "on_ng": true,
+    "ok_text": "OK",
+    "ng_text": "NG"
+  },
+  "alarm": {
+    "enabled": true,
+    "beep_on_ng": true,
+    "sound_path": "",
+    "min_interval_s": 1.0,
+    "on_merged": true
+  },
+  "security": {
+    "require_login": true
+  }
+}

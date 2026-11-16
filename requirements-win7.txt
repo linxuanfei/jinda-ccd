@@ -1,0 +1,12 @@
+# Win7 / Qt5 依赖（Python 3.8 x64 专用）
+# 这套是"能在 Windows 7 SP1 上跑"的最后一代版本，别升级
+numpy==1.21.6
+opencv-python==4.5.5.64
+PySide2==5.15.2.1
+pyserial==3.5
+
+# 打包（可选）
+pyinstaller==5.13.2
+
+# 测试（可选）
+pytest>=7.4,<8

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "_comment": "HPro 类型映射表。改这里不用改代码；每个检测类型配置它对应的算子/参数/是否取判定规则。",
+
+  "judge": {
+    "_comment": "判定规则行的字段位置（按空白切分后的下标）：<参照项> <模式> <x> <y> <值1> <值2> <公差> ...",
+    "mode_index": 1,
+    "value_index": 4,
+    "value2_index": 5,
+    "tol_index": 6,
+    "modes": {
+      "_comment": "模式号 -> 判定区间。0/1/2 是标称 ± 公差（low - tol ~ low + tol），禁止下限 ~ 下限+公差。",
+      "0": { "kind": "range", "expr": "low - tol ~ low + tol" },
+      "1": { "kind": "range", "expr": "low - tol ~ low + tol" },
+      "2": { "kind": "range", "expr": "low - tol ~ low + tol" },
+      "5": { "kind": "range", "expr": "value2" }
+    }
+  },
+
+  "roi": {
+    "_comment": "线形 ROI（高度或宽度为 0）会加厚成可计算的框，厚度按像素。",
+    "line_roi_thickness": 24
+  },
+
+  "types": {
+    "1": {
+      "meaning": "边缘/基线剖面（横线 ROI）",
+      "op": "find_blobs",
+      "params": {
+        "threshold_mode": "dark",
+        "threshold": 128,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 50,
+        "max_area": 100000
+      },
+      "judge_from_rule": false,
+      "role": "baseline"
+    },
+    "2": {
+      "meaning": "正位度/偏移（X 向，参照基线）",
+      "op": "distance_pp",
+      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0, "axis": "x" },
+      "judge_from_rule": true
+    },
+    "3": {
+      "meaning": "正位度/偏移（Y 向，参照基线）",
+      "op": "distance_pp",
+      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0, "axis": "y" },
+      "judge_from_rule": true
+    },
+    "11": {
+      "meaning": "有/无检测（斑块存在性）",
+      "op": "find_blobs",
+      "params": {
+        "threshold_mode": "dark",
+        "threshold": 128,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 200,
+        "max_area": 100000
+      },
+      "judge_from_rule": false
+    },
+    "12": {
+      "meaning": "图像比对/定位（模板匹配）",
+      "op": "match_template",
+      "params": { "template": "", "min_score": 0.8 },
+      "judge_from_rule": false
+    },
+    "13": {
+      "meaning": "面积/尺寸（猜测）",
+      "op": "find_blobs",
+      "params": {
+        "threshold_mode": "dark",
+        "threshold": 128,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 200,
+        "max_area": 100000
+      },
+      "judge_from_rule": true
+    },
+    "14": {
+      "meaning": "面积/尺寸（猜测）",
+      "op": "find_blobs",
+      "params": {
+        "threshold_mode": "dark",
+        "threshold": 128,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 200,
+        "max_area": 100000
+      },
+      "judge_from_rule": true
+    }
+  },
+
+  "unmapped": {
+    "_comment": "未配置的类型怎么处理：skip=跳过并报告；placeholder=建一个占位检测项（运行必 NG，便于手动改）。",
+    "action": "skip"
+  }
+}

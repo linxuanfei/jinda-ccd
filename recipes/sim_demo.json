@@ -1,0 +1,38 @@
+{
+  "name": "sim_demo",
+  "station": 1,
+  "camera": "synthetic",
+  "items": [
+    {
+      "id": "pins",
+      "name": "PIN 检测",
+      "type": "find_blobs",
+      "roi": [200, 200, 880, 560],
+      "params": {
+        "threshold": 120,
+        "threshold_mode": "dark",
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 500,
+        "max_area": 50000
+      },
+      "judge": { "kind": "range", "min": 2, "max": 2 }
+    },
+    {
+      "id": "pitch",
+      "name": "X方向距离",
+      "type": "distance_pp",
+      "roi": null,
+      "params": { "src": "pins", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.05 },
+      "judge": { "kind": "range", "min": 22.0, "max": 23.5 }
+    },
+    {
+      "id": "pin_area",
+      "name": "PIN 面积",
+      "type": "area_of_blob",
+      "roi": null,
+      "params": { "src": "pins", "index": 0 },
+      "judge": { "kind": "range", "min": 1000, "max": 20000 }
+    }
+  ]
+}

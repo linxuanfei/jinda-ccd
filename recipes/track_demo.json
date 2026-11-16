@@ -1,0 +1,58 @@
+{
+  "name": "track_demo",
+  "station": 1,
+  "camera": "synthetic",
+  "_comment": "演示跟踪框：产品整体有 ±N px 抖动时，跟踪框找到偏移后把检测框跟着平移，测量值保持稳定",
+  "calibration": {
+    "name": "demo",
+    "method": "manual",
+    "mm_per_px": 0.05,
+    "x_mm_per_px": 0.05,
+    "y_mm_per_px": 0.05
+  },
+  "track": {
+    "enabled": true,
+    "roi": [352, 272, 636, 436],
+    "min_score": 0.6,
+    "search_margin": 60,
+    "apply_to": [],
+    "relearn": false
+  },
+  "items": [
+    {
+      "id": "pins",
+      "name": "PIN 数量",
+      "type": "find_blobs",
+      "roi": [200, 200, 880, 560],
+      "params": {
+        "threshold_mode": "dark",
+        "threshold_low": 111,
+        "threshold_high": 254,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 25,
+        "max_area": 999999,
+        "min_width": 2,
+        "min_height": 2,
+        "min_circularity": 0.0
+      },
+      "judge": { "kind": "range", "min": 2, "max": 2 }
+    },
+    {
+      "id": "pitch",
+      "name": "PIN 间距（设计值±容差）",
+      "type": "distance_pp",
+      "roi": null,
+      "params": { "src": "pins", "blob_a": 0, "blob_b": 1, "mm_per_px": 0 },
+      "judge": { "kind": "design", "design": 23.05, "tol_upper": 0.5, "tol_lower": -0.5, "abs": false }
+    },
+    {
+      "id": "pin_area",
+      "name": "PIN 面积（设计值±容差）",
+      "type": "area_of_blob",
+      "roi": null,
+      "params": { "src": "pins", "index": 0 },
+      "judge": { "kind": "design", "design": 19.56, "tol_upper": 1.5, "tol_lower": -1.5, "abs": false }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "field_demo",
+  "station": 1,
+  "camera": "synthetic",
+  "_comment": "对齐现场口径的示例：区间阈值 111~254（视频里写 255，本树对 0/255 硬拦截，所以示例用 254）、设计值±容差判定（视频 2017538603 实测：1mm ± 0.08mm）",
+  "items": [
+    {
+      "id": "pins",
+      "name": "PIN 数量",
+      "type": "find_blobs",
+      "roi": [200, 200, 880, 560],
+      "params": {
+        "threshold_mode": "dark",
+        "threshold_low": 111,
+        "threshold_high": 254,
+        "blur": 5,
+        "morph_kernel": 5,
+        "min_area": 25,
+        "max_area": 999999,
+        "min_width": 2,
+        "min_height": 2,
+        "min_circularity": 0.0
+      },
+      "judge": { "kind": "range", "min": 2, "max": 2 }
+    },
+    {
+      "id": "pitch",
+      "name": "PIN 间距（设计值±容差）",
+      "type": "distance_pp",
+      "roi": null,
+      "params": { "src": "pins", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.05 },
+      "judge": { "kind": "design", "design": 23.05, "tol_upper": 0.5, "tol_lower": -0.5, "abs": false }
+    },
+    {
+      "id": "pin_area",
+      "name": "PIN 面积（设计值±容差）",
+      "type": "area_of_blob",
+      "roi": null,
+      "params": { "src": "pins", "index": 0 },
+      "judge": { "kind": "design", "design": 7824.0, "tol_upper": 400.0, "tol_lower": -400.0, "abs": false }
+    }
+  ]
+}
