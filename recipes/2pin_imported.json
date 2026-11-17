@@ -2,6 +2,82 @@
   "name": "2pin",
   "station": 1,
   "camera": "",
+  "calibration": {
+    "name": "default",
+    "method": "two_points",
+    "mm_per_px": 0.0,
+    "mm_per_px_x": 0.0,
+    "mm_per_px_y": 0.0,
+    "x_mm_per_px": 0.0,
+    "y_mm_per_px": 0.0,
+    "reference_mm": 0.0,
+    "points_px": [],
+    "note": ""
+  },
+  "track": {
+    "enabled": true,
+    "roi": null,
+    "min_score": 0.7,
+    "search_margin": 60,
+    "apply_to": [],
+    "relearn": false
+  },
+  "scales": [
+    {
+      "station": 0,
+      "scale_x": 12.6,
+      "scale_y": 4.5,
+      "scale": 10.0,
+      "unit": null,
+      "note": "单位未在文件中写明"
+    },
+    {
+      "station": 1,
+      "scale_x": 9.4,
+      "scale_y": 22.0,
+      "scale": 10.0,
+      "unit": null,
+      "note": "单位未在文件中写明"
+    }
+  ],
+  "tail_rules": [
+    {
+      "type": 4,
+      "name": "类型4",
+      "kind": "range",
+      "nominal": 0.0,
+      "tol": [
+        0.12,
+        0.12
+      ],
+      "min": -0.12,
+      "max": 0.12,
+      "refs": [
+        1,
+        1
+      ],
+      "raw": "4 0 0.000 0.120 0.120 1 1",
+      "note": "类型4中文含义未确认；末尾整数原样保存，含义未确认"
+    },
+    {
+      "type": 4,
+      "name": "类型4",
+      "kind": "range",
+      "nominal": 0.0,
+      "tol": [
+        0.12,
+        0.12
+      ],
+      "min": -0.12,
+      "max": 0.12,
+      "refs": [
+        2,
+        1
+      ],
+      "raw": "4 1 0.000 0.120 0.120 2 1",
+      "note": "类型4中文含义未确认；末尾整数原样保存，含义未确认"
+    }
+  ],
   "items": [
     {
       "id": "s0_i0",
@@ -21,7 +97,18 @@
         "morph_kernel": 5,
         "min_area": 50,
         "max_area": 100000,
-        "_hpro_type": 1
+        "_hpro_type": 1,
+        "_hpro_roi_xyxy": [
+          241,
+          1082,
+          2440,
+          1082
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": null
     },
@@ -41,13 +128,32 @@
         "blob_a": 0,
         "blob_b": 1,
         "mm_per_px": 0.0,
-        "_hpro_type": 2
+        "axis": "x",
+        "_hpro_type": 2,
+        "_hpro_roi_xyxy": [
+          1060,
+          1079,
+          1126,
+          1104
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": {
         "kind": "range",
-        "min": -0.1,
+        "min": -0.18,
         "max": -0.02
-      }
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": -0.18,
+          "max": -0.02
+        }
+      ]
     },
     {
       "id": "s0_i2",
@@ -65,13 +171,37 @@
         "blob_a": 0,
         "blob_b": 1,
         "mm_per_px": 0.0,
-        "_hpro_type": 3
+        "axis": "y",
+        "_hpro_type": 3,
+        "_hpro_roi_xyxy": [
+          1141,
+          1079,
+          1207,
+          1104
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": {
         "kind": "range",
-        "min": 1.0,
+        "min": 0.92,
         "max": 1.08
-      }
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": 0.92,
+          "max": 1.08
+        },
+        {
+          "kind": "range",
+          "min": -0.18,
+          "max": -0.02
+        }
+      ]
     },
     {
       "id": "s0_i3",
@@ -87,13 +217,24 @@
       "params": {
         "template": "",
         "min_score": 0.8,
-        "_hpro_type": 12
+        "_hpro_type": 12,
+        "_hpro_roi_xyxy": [
+          857,
+          1020,
+          1027,
+          1037
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": null
     },
     {
       "id": "s0_i4",
-      "name": "面积/尺寸（猜测）",
+      "name": "类型13",
       "type": "find_blobs",
       "station": 0,
       "roi": [
@@ -109,17 +250,39 @@
         "morph_kernel": 5,
         "min_area": 200,
         "max_area": 100000,
-        "_hpro_type": 13
+        "_hpro_type": 13,
+        "_hpro_roi_xyxy": [
+          973,
+          1033,
+          995,
+          1074
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": {
         "kind": "range",
         "min": 300.0,
-        "max": 1000.0
-      }
+        "max": 1000.0,
+        "mode": 5,
+        "unproven_third": 100.0
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": 300.0,
+          "max": 1000.0,
+          "mode": 5,
+          "unproven_third": 100.0
+        }
+      ]
     },
     {
       "id": "s0_i5",
-      "name": "面积/尺寸（猜测）",
+      "name": "类型14",
       "type": "find_blobs",
       "station": 0,
       "roi": [
@@ -135,13 +298,35 @@
         "morph_kernel": 5,
         "min_area": 200,
         "max_area": 100000,
-        "_hpro_type": 14
+        "_hpro_type": 14,
+        "_hpro_roi_xyxy": [
+          1275,
+          1037,
+          1296,
+          1075
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": {
         "kind": "range",
         "min": 300.0,
-        "max": 1000.0
-      }
+        "max": 1000.0,
+        "mode": 5,
+        "unproven_third": 100.0
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": 300.0,
+          "max": 1000.0,
+          "mode": 5,
+          "unproven_third": 100.0
+        }
+      ]
     },
     {
       "id": "s1_i0",
@@ -161,7 +346,18 @@
         "morph_kernel": 5,
         "min_area": 50,
         "max_area": 100000,
-        "_hpro_type": 1
+        "_hpro_type": 1,
+        "_hpro_roi_xyxy": [
+          1361,
+          757,
+          1381,
+          777
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": null
     },
@@ -181,13 +377,32 @@
         "blob_a": 0,
         "blob_b": 1,
         "mm_per_px": 0.0,
-        "_hpro_type": 2
+        "axis": "x",
+        "_hpro_type": 2,
+        "_hpro_roi_xyxy": [
+          1466,
+          758,
+          1489,
+          782
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": {
         "kind": "range",
-        "min": 1.0,
+        "min": 0.92,
         "max": 1.08
-      }
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": 0.92,
+          "max": 1.08
+        }
+      ]
     },
     {
       "id": "s1_i2",
@@ -207,7 +422,18 @@
         "morph_kernel": 5,
         "min_area": 200,
         "max_area": 100000,
-        "_hpro_type": 11
+        "_hpro_type": 11,
+        "_hpro_roi_xyxy": [
+          1202,
+          946,
+          1239,
+          978
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": null
     },
@@ -225,13 +451,35 @@
       "params": {
         "template": "",
         "min_score": 0.8,
-        "_hpro_type": 12
+        "_hpro_type": 12,
+        "_hpro_roi_xyxy": [
+          1603,
+          942,
+          1632,
+          973
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
-      "judge": null
+      "judge": {
+        "kind": "range",
+        "min": 3.65,
+        "max": 3.95
+      },
+      "judges": [
+        {
+          "kind": "range",
+          "min": 3.65,
+          "max": 3.95
+        }
+      ]
     },
     {
       "id": "s1_i4",
-      "name": "面积/尺寸（猜测）",
+      "name": "类型13",
       "type": "find_blobs",
       "station": 1,
       "roi": [
@@ -247,7 +495,18 @@
         "morph_kernel": 5,
         "min_area": 200,
         "max_area": 100000,
-        "_hpro_type": 13
+        "_hpro_type": 13,
+        "_hpro_roi_xyxy": [
+          1134,
+          829,
+          1281,
+          855
+        ],
+        "_hpro_unmapped_tail": [
+          0.0,
+          255.0,
+          0.0
+        ]
       },
       "judge": null
     }

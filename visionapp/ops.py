@@ -35,6 +35,7 @@ class Item:
     roi: Rect | None = None
     params: dict[str, Any] = field(default_factory=dict)
     judge: dict[str, Any] | None = None
+    judges: list[dict[str, Any]] = field(default_factory=list)
     name: str = ""
     station: int = 1
 
