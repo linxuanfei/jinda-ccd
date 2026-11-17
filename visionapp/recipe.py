@@ -24,19 +24,28 @@ class Recipe:
     items: list[Item] = field(default_factory=list)
     calibration: Calibration = field(default_factory=Calibration)
     track: Any = field(default_factory=lambda: coerce_track(None))
+    # 工程 ini 的相机比例，原值。单位文件里没写，不能当成 mm_per_px。
+    scales: list[dict[str, Any]] = field(default_factory=list)
+    # 文件尾类型 4。不是工位检测项。
+    tail_rules: list[dict[str, Any]] = field(default_factory=list)
 
     # ---------------------------------------------------------------- 序列化
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Recipe":
         items = []
         for raw in data.get("items", []):
+            judge = raw.get("judge")
+            judges = raw.get("judges")
+            if not isinstance(judges, list):
+                judges = [judge] if judge else []
             items.append(
                 Item(
                     id=raw["id"],
                     type=raw["type"],
                     roi=Rect.from_any(raw["roi"]) if raw.get("roi") else None,
                     params=raw.get("params", {}),
-                    judge=raw.get("judge"),
+                    judge=judge,
+                    judges=list(judges),
                     name=raw.get("name", ""),
                     station=int(raw.get("station", data.get("station", 1))),
                 )
@@ -48,28 +57,38 @@ class Recipe:
             items=items,
             calibration=Calibration.from_dict(data.get("calibration")),
             track=coerce_track(data.get("track")),
+            scales=list(data.get("scales") or []),
+            tail_rules=list(data.get("tail_rules") or []),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        rows: list[dict[str, Any]] = []
+        for it in self.items:
+            row: dict[str, Any] = {
+                "id": it.id,
+                "name": it.name,
+                "type": it.type,
+                "station": it.station,
+                "roi": it.roi.as_dict() if it.roi else None,
+                "params": it.params,
+                "judge": it.judge,
+            }
+            if it.judges:
+                row["judges"] = it.judges
+            rows.append(row)
+        data: dict[str, Any] = {
             "name": self.name,
             "station": self.station,
             "camera": self.camera,
             "calibration": self.calibration.to_dict(),
             "track": coerce_track(self.track).to_dict(),
-            "items": [
-                {
-                    "id": it.id,
-                    "name": it.name,
-                    "type": it.type,
-                    "station": it.station,
-                    "roi": it.roi.as_dict() if it.roi else None,
-                    "params": it.params,
-                    "judge": it.judge,
-                }
-                for it in self.items
-            ],
         }
+        if self.scales:
+            data["scales"] = self.scales
+        if self.tail_rules:
+            data["tail_rules"] = self.tail_rules
+        data["items"] = rows
+        return data
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

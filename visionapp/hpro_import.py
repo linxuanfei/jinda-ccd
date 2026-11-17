@@ -53,12 +53,28 @@ class ImportResult:
                  "| 站 | # | 类型 | 含义 | 算子 | ROI (x,y,w,h) | 判定 |",
                  "| --- | --- | --- | --- | --- | --- | --- |"]
         for it in self.recipe.items:
+            rules = it.judges or ([it.judge] if it.judge else [])
             judge = "-"
-            if it.judge:
-                judge = f"{it.judge.get('min')} ~ {it.judge.get('max')}"
+            if rules:
+                judge = " ; ".join(f"{j.get('min')} ~ {j.get('max')}" for j in rules)
             roi = "-" if it.roi is None else f"{it.roi.x},{it.roi.y},{it.roi.w},{it.roi.h}"
             lines.append(f"| {it.station} | {it.id.split('_i')[-1].split('_')[0]} | "
                          f"{it.params.get('_hpro_type', '-')} | {it.name} | {it.type} | {roi} | {judge} |")
+        if self.recipe.tail_rules:
+            lines += ["", "## 文件尾类型4", ""]
+            for rule in self.recipe.tail_rules:
+                lines.append(
+                    f"- {rule.get('name')} {rule.get('min')} ~ {rule.get('max')} "
+                    f"refs={rule.get('refs')} raw=`{rule.get('raw')}`"
+                )
+        if self.recipe.scales:
+            lines += ["", "## 比例（原始值，单位未在文件中写明）", ""]
+            for sc in self.recipe.scales:
+                lines.append(
+                    f"- 站{sc.get('station')}: scale_x={sc.get('scale_x')} "
+                    f"scale_y={sc.get('scale_y')} scale={sc.get('scale')} "
+                    f"unit={sc.get('unit')}"
+                )
         if self.issues:
             lines += ["", "## 提示", ""]
             for iss in self.issues:
@@ -86,13 +102,19 @@ def _line_rect(roi: tuple[int, int, int, int] | None, thickness: int) -> tuple[R
     return Rect(x, y, max(1, w), max(1, h)), thick
 
 
-def _parse_judge(extra: list[str], judge_cfg: dict[str, Any]) -> dict[str, Any] | None:
-    """从附加行里找判定规则行并换算成区间。"""
+def _eval_bound(txt: str, low: float, high: float, tol: float) -> float:
+    txt = txt.replace("low", str(low)).replace("high", str(high)).replace("tol", str(abs(tol)))
+    return round(float(eval(txt, {"__builtins__": {}}, {})), 4)     # noqa: S307 —— 仅用于配置表达式
+
+
+def _parse_judges(extra: list[str], judge_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """读出一条检测项上的全部判定行。模式 0/1/2 仍是标称 ± 公差。"""
     mode_idx = int(judge_cfg.get("mode_index", 1))
     val_idx = int(judge_cfg.get("value_index", 4))
     val2_idx = int(judge_cfg.get("value2_index", 5))
     tol_idx = int(judge_cfg.get("tol_index", 6))
-    modes = {k: v for k, v in judge_cfg.get("modes", {}).items() if not k.startswith("_")}
+    modes = {k: v for k, v in judge_cfg.get("modes", {}).items() if not str(k).startswith("_")}
+    found: list[dict[str, Any]] = []
 
     for line in extra:
         fields = line.split()
@@ -110,19 +132,136 @@ def _parse_judge(extra: list[str], judge_cfg: dict[str, Any]) -> dict[str, Any] 
             continue
         expr = str(spec.get("expr", "low - tol ~ low + tol"))
         if expr.strip() == "value2":
-            return {"kind": "range", "min": low, "max": high}
+            # 值1 ~ 值2。第三个数不进区间，含义未证实。
+            found.append({
+                "kind": "range",
+                "min": low,
+                "max": high,
+                "mode": mode,
+                "unproven_third": tol,
+            })
+            continue
         lo, hi = (p.strip() for p in expr.split("~"))
-        env = {"low": low, "high": high, "tol": tol}
+        found.append({
+            "kind": "range",
+            "min": _eval_bound(lo, low, high, tol),
+            "max": _eval_bound(hi, low, high, tol),
+        })
+    return found
 
-        def ev(txt: str) -> float:
-            txt = txt.replace("low", str(low)).replace("high", str(high)).replace("tol", str(abs(tol)))
-            return round(float(eval(txt, {"__builtins__": {}}, {})), 4)     # noqa: S307 —— 仅用于配置表达式
 
-        return {"kind": "range", "min": ev(lo), "max": ev(hi)}
+def _parse_judge(extra: list[str], judge_cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """兼容旧调用：只返回第一条。新导入走 `_parse_judges`。"""
+    judges = _parse_judges(extra, judge_cfg)
+    return judges[0] if judges else None
+
+
+_LIVE_THRESHOLD_KEYS = ("threshold", "threshold_low", "threshold_high")
+
+
+def _unmapped_item_tail(params_line: str) -> list[float] | None:
+    """项参数行末尾常见 `0.000 255.000 0.000`。记下来，不要当成阈值。"""
+    parts = params_line.split()
+    if len(parts) < 3:
+        return None
+    try:
+        tail = [float(parts[-3]), float(parts[-2]), float(parts[-1])]
+    except ValueError:
+        return None
+    if tail[0] == 0.0 and tail[1] == 255.0:
+        return tail
     return None
 
 
-def import_template(tpl: HProTemplate, mapping: dict[str, Any]) -> ImportResult:
+def _drop_blocked_thresholds(params: dict[str, Any], station: int, idx: int,
+                             issues: list[ImportIssue]) -> None:
+    """0 和 255 继续硬拦截。这里直接不写入，也不改成 1 或 254。"""
+    for key in _LIVE_THRESHOLD_KEYS:
+        if key not in params:
+            continue
+        raw = params[key]
+        try:
+            val = int(float(raw))
+        except (TypeError, ValueError):
+            continue
+        if val in (0, 255):
+            params.pop(key, None)
+            issues.append(ImportIssue(
+                "warn", station, idx,
+                f"{key}={raw} 未写入（0/255 不作为阈值，也不钳位）",
+            ))
+
+
+def _import_tail_rules(rules: list[Any]) -> list[dict[str, Any]]:
+    """文件尾类型 4：标称 ± 公差。下标与项内判定行不同，不能复用那张表。"""
+    out: list[dict[str, Any]] = []
+    for rule in rules:
+        nominal = float(rule.nominal)
+        lo = round(nominal - abs(float(rule.tol_a)), 4)
+        hi = round(nominal + abs(float(rule.tol_b)), 4)
+        out.append({
+            "type": 4,
+            "name": "类型4",
+            "kind": "range",
+            "nominal": nominal,
+            "tol": [float(rule.tol_a), float(rule.tol_b)],
+            "min": lo,
+            "max": hi,
+            "refs": [int(rule.refs[0]), int(rule.refs[1])],
+            "raw": rule.raw,
+            "note": "类型4中文含义未确认；末尾整数原样保存，含义未确认",
+        })
+    return out
+
+
+def _read_text(path: str) -> str:
+    raw = open(path, "rb").read()
+    for enc in ("utf-8-sig", "gb18030", "gbk"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("gb18030", errors="replace")
+
+
+_CAM_SCALE_RE = re.compile(
+    r"^相机(\d+)(X|Y)?比例\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*$"
+)
+
+
+def load_raw_scales(path: str) -> list[dict[str, Any]]:
+    """读 2pin 工程系统 ini 里的相机比例，按原值保存。
+
+    相机 1 → station 0。文件没有写单位，所以不换算 mm_per_px，
+    也不把「比例」当成毫米。二次元 ini 的 HorzScale/VertScale 对不上这些键，不会被读进来。
+    """
+    by_cam: dict[int, dict[str, Any]] = {}
+    for line in _read_text(path).splitlines():
+        m = _CAM_SCALE_RE.match(line.strip())
+        if not m:
+            continue
+        cam = int(m.group(1))
+        axis = m.group(2)
+        value = float(m.group(3))
+        rec = by_cam.setdefault(cam, {
+            "station": cam - 1,
+            "scale_x": None,
+            "scale_y": None,
+            "scale": None,
+            "unit": None,
+            "note": "单位未在文件中写明",
+        })
+        if axis == "X":
+            rec["scale_x"] = value
+        elif axis == "Y":
+            rec["scale_y"] = value
+        else:
+            rec["scale"] = value
+    return [by_cam[k] for k in sorted(by_cam)]
+
+
+def import_template(tpl: HProTemplate, mapping: dict[str, Any],
+                    scales: list[dict[str, Any]] | None = None) -> ImportResult:
     types_cfg: dict[str, Any] = mapping.get("types", {})
     judge_cfg: dict[str, Any] = mapping.get("judge", {})
     thickness = int(mapping.get("roi", {}).get("line_roi_thickness", 24))
@@ -131,6 +270,20 @@ def import_template(tpl: HProTemplate, mapping: dict[str, Any]) -> ImportResult:
     recipe = Recipe(name=os.path.splitext(os.path.basename(tpl.path))[0], station=1,
                     camera="")
     result = ImportResult(recipe=recipe)
+    saw_unmapped_tail = False
+    if scales:
+        # 原值挂在配方上，不写进 calibration 的 mm_per_px。
+        recipe.scales = [dict(sc) for sc in scales]
+        result.issues.append(ImportIssue(
+            "info", -1, -1,
+            "相机比例按文件原值写入 scale_x/scale_y/scale，单位未在文件中写明，未换算 mm_per_px",
+        ))
+    if tpl.tail_rules:
+        recipe.tail_rules = _import_tail_rules(tpl.tail_rules)
+        result.issues.append(ImportIssue(
+            "info", -1, -1,
+            f"文件尾类型4 已导入 {len(recipe.tail_rules)} 条（中文含义未确认）",
+        ))
 
     for st in tpl.stations:
         station = st.index
@@ -157,6 +310,13 @@ def import_template(tpl: HProTemplate, mapping: dict[str, Any]) -> ImportResult:
             roi, thick = _line_rect(hp.roi, thickness)
             params: dict[str, Any] = copy.deepcopy(cfg.get("params", {}))
             params["_hpro_type"] = t
+            if hp.roi is not None:
+                params["_hpro_roi_xyxy"] = [int(v) for v in hp.roi]
+            tail = _unmapped_item_tail(hp.params_line)
+            if tail is not None:
+                params["_hpro_unmapped_tail"] = tail
+                saw_unmapped_tail = True
+            _drop_blocked_thresholds(params, station, idx, result.issues)
             item_id = f"s{station}_i{idx}"
             item = Item(id=item_id, type=cfg.get("op", "find_blobs"),
                         name=cfg.get("meaning", f"类型{t}"), roi=roi, params=params,
@@ -172,15 +332,23 @@ def import_template(tpl: HProTemplate, mapping: dict[str, Any]) -> ImportResult:
                 baseline_ids.append(item_id)
 
             if cfg.get("judge_from_rule"):
-                judge = _parse_judge(hp.extra, judge_cfg)
-                if judge:
-                    item.judge = judge
-                else:
+                judges = _parse_judges(hp.extra, judge_cfg)
+                item.judges = judges
+                item.judge = judges[0] if judges else None
+                if not judges:
                     result.issues.append(ImportIssue("info", station, idx, "未解析到判定规则，判定留空"))
-            if thick:
-                result.issues.append(ImportIssue("info", station, idx,
-                                                 f"线形 ROI 已加厚至 {thickness}px"))
+            if thick and hp.roi is not None:
+                x1, y1, x2, y2 = hp.roi
+                result.issues.append(ImportIssue(
+                    "info", station, idx,
+                    f"线形 ROI 已加厚至 {thickness}px；原端点 {x1},{y1}–{x2},{y2}",
+                ))
             recipe.items.append(item)
             result.mapped += 1
 
+    if saw_unmapped_tail:
+        result.issues.append(ImportIssue(
+            "info", -1, -1,
+            "参数行末尾 0.000 255.000 未映射为阈值（不钳位，0/255 仍硬拦截）",
+        ))
     return result

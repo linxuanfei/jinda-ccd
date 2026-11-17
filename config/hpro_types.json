@@ -13,7 +13,11 @@
       "0": { "kind": "range", "expr": "low - tol ~ low + tol" },
       "1": { "kind": "range", "expr": "low - tol ~ low + tol" },
       "2": { "kind": "range", "expr": "low - tol ~ low + tol" },
-      "5": { "kind": "range", "expr": "value2" }
+      "5": {
+        "kind": "range",
+        "expr": "value2",
+        "_comment": "区间取前两个数。第三个数含义未证实，不参与上下限。"
+      }
     }
   },
 
@@ -63,13 +67,15 @@
       "judge_from_rule": false
     },
     "12": {
+      "_comment": "有的配方会写判定行。judge_from_rule 为真时导入该行；没写则判定留空。",
       "meaning": "图像比对/定位（模板匹配）",
       "op": "match_template",
       "params": { "template": "", "min_score": 0.8 },
-      "judge_from_rule": false
+      "judge_from_rule": true
     },
     "13": {
-      "meaning": "面积/尺寸（猜测）",
+      "_comment": "中文含义仍是猜测（曾标为面积/尺寸）。正式名称只用类型号，不把猜测写进检测项名。",
+      "meaning": "类型13",
       "op": "find_blobs",
       "params": {
         "threshold_mode": "dark",
@@ -82,7 +88,8 @@
       "judge_from_rule": true
     },
     "14": {
-      "meaning": "面积/尺寸（猜测）",
+      "_comment": "中文含义仍是猜测（曾标为面积/尺寸）。正式名称只用类型号，不把猜测写进检测项名。",
+      "meaning": "类型14",
       "op": "find_blobs",
       "params": {
         "threshold_mode": "dark",
