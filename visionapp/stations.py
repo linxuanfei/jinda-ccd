@@ -159,7 +159,7 @@ class Station:
 
     def open_recorder(self) -> None:
         cfg = self._recorder_cfg()
-        cfg.root = os.path.join(cfg.root, self.cfg.display_name())
+        cfg.root = os.path.join(cfg.root, f"相机{self.cfg.id}")   # 按相机号分文件夹
         self.recorder.cfg = cfg
         self.recorder.open(self.recipe.name, [it.id for it in self.recipe.items])
 

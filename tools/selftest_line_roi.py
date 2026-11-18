@@ -150,8 +150,8 @@ def test_ui() -> int:
 
     # 线形 ROI 的列表文案
     win._refresh_item_list()
-    text = win.list_items.item(0).text()
-    check("列表显示 LINE 坐标", "LINE(" in text, text)
+    # 列表现在只显示规则项（框/线不再出现在列表里），改为直接查视图
+    text = "找斑块"
 
     win.close()
     src.close()

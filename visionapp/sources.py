@@ -5,7 +5,6 @@
 - SyntheticSource  : 合成画面（带真值，用于算法自测与回归，不需要任何相机）
 - RtspSource       : MaixCam Pro / 网络相机 RTSP（生产联调用，需相机联网）
 - UvcSource        : 本地 UVC 摄像头（相机切到 UVC 模式时可用）
-- MindVisionSource : 迈德威视 GigE（官方 MVSDK，库不在则失败）
 
 新增工业相机时，只需实现 FrameSource 并在这里注册（工厂函数 `open_source`）。
 """
@@ -289,8 +288,10 @@ def open_source(kind: str, **kwargs: Any) -> FrameSource:
         return RtspSource(**kwargs)
     if kind == "uvc":
         return UvcSource(**kwargs)
-    if kind in ("mindvision", "mvsdk"):
-        from .mindvision import MindVisionSource
+    if kind in ("mindvision", "mv", "mvs"):
+        # 延迟导入：没有 SDK / 不用工业相机时完全不加载
+        from .sources_mindvision import MindVisionSource
+
         return MindVisionSource(**kwargs)
     raise ValueError(f"未知帧源类型: {kind}")
 
@@ -316,16 +317,27 @@ def source_from_config(cfg: dict[str, Any]) -> FrameSource:
         if not url:
             raise ValueError("RTSP 地址不能为空")
         return open_source("rtsp", url=url)
-    if kind in ("mindvision", "mvsdk"):
-        from .mindvision import MODEL, SERIAL
+    if kind == "mindvision":
         return open_source(
             "mindvision",
-            serial=str(cfg.get("serial") or SERIAL),
-            model=str(cfg.get("model") or MODEL),
-            trigger=str(cfg.get("trigger") or "hardware"),
-            exposure_ms=cfg.get("exposure"),
-            gain=cfg.get("gain"),
-            fps=cfg.get("fps"),
-            sdk_path=str(cfg.get("sdk_path") or ""),
+            index=int(cfg.get("index", 0) or 0),
+            serial=cfg.get("serial", ""),
+            model=cfg.get("model", ""),
+            exposure_us=_maybe_float(cfg.get("exposure_us")),
+            exposure_ms=_maybe_float(cfg.get("exposure_ms")) or 100.0,
+            gain=_maybe_float(cfg.get("gain")),
+            gain_db=_maybe_float(cfg.get("gain_db")),
+            fps=float(cfg.get("fps", 0) or 0),
+            trigger=cfg.get("trigger", "continuous") or "continuous",
+            sdk_path=cfg.get("sdk_path", "") or "",
         )
     raise ValueError(f"未知帧源: {kind}")
+
+
+def _maybe_float(v: Any) -> float | None:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None

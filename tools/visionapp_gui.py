@@ -76,6 +76,47 @@ def _attach_shot(app: QApplication, win: MainWindow, path: str) -> None:
     QTimer.singleShot(2000, grab)
 
 
+def _fit_stations_to_cameras(line, settings):
+    """按实际枚举到的相机数调整机位数。
+
+    现场诉求：接 1 台相机就只显示 1 个画面，接 2 台就显示 2 个。
+    只在产线里所有机位都是迈德威视时才动；枚举失败（没相机/SDK 没装）时保持原样。
+    """
+    import copy as _copy
+
+    if not settings.get("auto_camera_stations", True):
+        return line
+    stations = list(getattr(line, "stations", []) or [])
+    if not stations:
+        return line
+    if {st.source.get("kind") for st in stations} != {"mindvision"}:
+        return line
+    try:
+        from visionapp.sources_mindvision import MindVisionSource
+
+        devices = MindVisionSource.list_devices()
+    except Exception:                                   # noqa: BLE001
+        return line
+    n = len(devices)
+    if not n or n == len(stations):
+        return line
+    if n < len(stations):
+        line.stations = stations[:n]
+    else:
+        base = stations[0]
+        for i in range(len(stations), n):
+            st = _copy.deepcopy(base)
+            st.id = i + 1
+            st.name = f"机位{i + 1}"
+            line.stations.append(st)
+    try:
+        line.save(getattr(line, "_path", "") or "")
+    except Exception:                                   # noqa: BLE001
+        pass
+    print(f"[INFO] 按实际相机数调整为 {n} 个机位")
+    return line
+
+
 def main() -> int:
     _setup_frozen_output()
 
@@ -97,6 +138,7 @@ def main() -> int:
     max_frames = 0 if args.shot else args.frames
 
     settings = AppSettings.load(os.path.join(BASE, "config", "app_settings.json"))
+    theme.set_scale(settings.ui_scale)          # 界面缩放（现场嫌字小，默认 1.25）
     app = QApplication(sys.argv)
     theme.apply(app)
 
@@ -109,10 +151,12 @@ def main() -> int:
             print(f"[ERR] 找不到产线配置: {line_path}", file=sys.stderr)
             return 2
         line = LineConfig.load(line_path)
+        line = _fit_stations_to_cameras(line, settings)
         win = MainWindow(line=line, max_frames=max_frames, settings=settings)
         errors = win.manager.open_all()
         for e in errors:
             print(f"[WARN] {e}", file=sys.stderr)
+        win.prune_unopened_stations()          # 没开起来的机位不显示
         win._refresh_station_tabs()
         win._refresh_item_list()
         win._sync_view()
@@ -162,5 +206,35 @@ def main() -> int:
     return app.exec()
 
 
+def _startup_guard() -> int:
+    """启动异常一律写日志（logs\startup-error.log），并尽量弹窗告诉用户。"""
+    import traceback
+
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                       # noqa: BLE001
+        try:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            d = os.path.join(base, "logs")
+            os.makedirs(d, exist_ok=True)
+            path = os.path.join(d, "startup-error.log")
+            with open(path, "a", encoding="utf-8") as fp:
+                fp.write("\n==== " + time.strftime("%Y-%m-%d %H:%M:%S") + " ====\n")
+                fp.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+        except Exception:                              # noqa: BLE001
+            path = "（日志没能写出来）"
+        try:
+            from visionapp.qtcompat import QApplication, QMessageBox
+
+            app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.critical(None, "VisionApp 启动失败",
+                                 f"{type(exc).__name__}: {exc}\n\n日志：{path}")
+        except Exception:                              # noqa: BLE001
+            pass
+        raise
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_startup_guard())

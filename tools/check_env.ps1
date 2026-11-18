@@ -8,7 +8,7 @@
   3) 把生成的 env_report.txt 发回
 
 它会报告：系统版本/位数、CPU/内存/磁盘、VC++ 运行库、USB3 控制器、
-已装相机软件与驱动、官方 MVSDK（MVCAMSDK_X64.dll / mvsdk.py）位置、网卡/巨帧设置。
+已装相机软件与驱动、MvCameraControl.dll 位置、网卡/巨帧设置。
 #>
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -98,20 +98,17 @@ $img = Get-CimOrWmi "Win32_PnPEntity" $null | Where-Object { $_.Name -match "Cam
 if ($img) { $img | ForEach-Object { Add-Line ("    " + $_.Name + "   [" + $_.Status + "]") } }
 else { Add-Line "    (未发现相机设备；老机器上可能是原厂专有驱动，见下条)" }
 
-# ------------------------------------------------------------------ SDK 文件（官方 MVSDK，不是海康 MvCameraControl）
-Add-Section "6. 官方 MVSDK（MVCAMSDK_X64.dll / mvsdk.py）"
+# ------------------------------------------------------------------ SDK 文件
+Add-Section "6. MvCameraControl.dll / SDK 位置"
 $found = @()
-foreach ($name in @("MVCAMSDK_X64.dll", "MVCAMSDK.dll", "mvsdk.py", "libMVSDK.so")) {
-  foreach ($root in @("C:\Program Files", "C:\Program Files (x86)", "C:\Windows\System32")) {
-    if (Test-Path $root) {
-      $found += Get-ChildItem -Path $root -Filter $name -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-                Select-Object -ExpandProperty FullName
-    }
+foreach ($root in @("C:\", "D:\", "C:\Program Files", "C:\Program Files (x86)")) {
+  if (Test-Path $root) {
+    $found += Get-ChildItem -Path $root -Filter "MvCameraControl.dll" -Recurse -Depth 4 -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
   }
 }
-if ($env:MINDVISION_SDK) { Add-Line ("  MINDVISION_SDK=" + $env:MINDVISION_SDK) }
 $found = $found | Select-Object -Unique
-if ($found) { $found | ForEach-Object { Add-Line ("  " + $_) } } else { Add-Line "  (没找到官方 MVSDK。装迈德威视官网 SDK，不要拿 MvCameraControl.dll 当后端。详见 docs/迈德威视相机.md)" }
+if ($found) { $found | ForEach-Object { Add-Line ("  " + $_) } } else { Add-Line "  (没找到 MvCameraControl.dll，需从原厂安装目录确认)" }
 
 # ------------------------------------------------------------------ 网络（GigE）
 Add-Section "7. 网卡与巨帧（千兆网相机用）"

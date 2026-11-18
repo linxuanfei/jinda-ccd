@@ -1,7 +1,14 @@
-"""跟踪框：模板匹配补偿放料偏差。
+"""跟踪框（Tracking）：补偿产品放料位置偏差。
 
-参考图只留在内存里。taught_xy / base_rois 一类运行时状态不进配方。
-相似度低于阈值时 ok=False，调用方必须判 NG，不能按旧框继续测。
+现场原话：「机台运行的时候不会百分百把产品都放在同一个位置，增加跟踪框是为了保证检测框都在正确范围」。
+
+做法（不改任何检测算子）：
+1. 第一帧：把跟踪框内的图像存成**参考图**；
+2. 之后每帧：在跟踪框**四周扩一圈**的搜索区里做模板匹配，得到 (dx, dy)；
+3. Pipeline 把**所有检测框 ROI 平移 (dx, dy)** 后再跑原有算子；
+4. 匹配分数低于 `min_score` → 视为跟踪失败，返回 ok=False，由 Pipeline 直接判 NG（不允许按旧坐标硬算）。
+
+参考图默认只在第一帧取一次（`relearn=False`），也可以设置 `relearn=True` 在跟踪失败时用当前帧重新学习。
 """
 
 from __future__ import annotations
@@ -14,19 +21,16 @@ import numpy as np
 
 from .core import Frame, Rect
 
-# 这些键是运行时状态，读进来就丢掉，保存时也不写。
-_RUNTIME_KEYS = ("taught_xy", "base_rois", "ref_gray", "last_dx", "last_dy")
-
 
 @dataclass
 class TrackConfig:
-    """跟踪框配置（存在配方里的只有这些）。"""
+    """跟踪框配置（存在配方里）。"""
     roi: Rect | None = None
-    min_score: float = 0.7
-    search_margin: int = 60
-    apply_to: list[str] = field(default_factory=list)
+    min_score: float = 0.7          # 低于这个相似度视为跟踪失败
+    search_margin: int = 60         # 搜索区在跟踪框外扩的像素
+    apply_to: list[str] = field(default_factory=list)   # 为空 = 全部检测框
     enabled: bool = True
-    relearn: bool = False
+    relearn: bool = False           # 失败时用当前帧重新学参考图
 
     @property
     def valid(self) -> bool:
@@ -44,9 +48,7 @@ class TrackConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "TrackConfig":
-        data = dict(data or {})
-        for key in _RUNTIME_KEYS:
-            data.pop(key, None)
+        data = data or {}
         roi = None
         if data.get("roi"):
             try:
@@ -70,7 +72,7 @@ class TrackResult:
     dy: float = 0.0
     score: float = 0.0
     message: str = ""
-    learned: bool = False
+    learned: bool = False           # 本帧是否刚学了参考图
 
     def as_dict(self) -> dict[str, Any]:
         return {"ok": self.ok, "dx": round(self.dx, 2), "dy": round(self.dy, 2),
@@ -78,7 +80,7 @@ class TrackResult:
 
 
 class Tracker:
-    """跟踪框定位器。参考图只放在这个对象里，不写进配方。"""
+    """跟踪框定位器（每个 Pipeline 持有自己的状态）。"""
 
     def __init__(self, cfg: TrackConfig):
         self.cfg = cfg
@@ -87,6 +89,7 @@ class Tracker:
     def reset(self) -> None:
         self._ref_gray = None
 
+    # ------------------------------------------------------------------ 参考图
     def _learn(self, gray: np.ndarray) -> bool:
         roi = self.cfg.roi
         if roi is None:
@@ -98,7 +101,9 @@ class Tracker:
         self._ref_gray = patch.copy()
         return True
 
+    # ------------------------------------------------------------------ 定位
     def locate(self, frame: Frame) -> TrackResult:
+        """返回本帧相对参考位置的偏移 (dx, dy)。"""
         if not self.cfg.valid:
             return TrackResult(ok=True, message="未启用跟踪")
         gray = frame.bgr if frame.bgr.ndim == 2 else cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2GRAY)
@@ -139,11 +144,11 @@ class Tracker:
 
 
 def shift_rect(rect: Rect | None, dx: float, dy: float) -> Rect | None:
-    """把 ROI 平移 (dx, dy)。线形 ROI 两端一起平移。"""
+    """把 ROI 平移 (dx, dy)（用于把检测框跟着产品走）。线形 ROI 两端一起平移。"""
     if rect is None:
         return None
     line = rect.line
-    if line is not None and rect.is_line():
+    if line is not None:
         return Rect(
             int(round(rect.x + dx)), int(round(rect.y + dy)), rect.w, rect.h,
             shape=rect.shape,
@@ -153,13 +158,4 @@ def shift_rect(rect: Rect | None, dx: float, dy: float) -> Rect | None:
     return Rect(int(round(rect.x + dx)), int(round(rect.y + dy)), rect.w, rect.h)
 
 
-def coerce_track(value: Any) -> TrackConfig:
-    """配方上的 track 可能是 TrackConfig，也可能是旧 dict。运行时键一律丢掉。"""
-    if isinstance(value, TrackConfig):
-        return value
-    if isinstance(value, dict):
-        return TrackConfig.from_dict(value)
-    return TrackConfig()
-
-
-__all__ = ["TrackConfig", "TrackResult", "Tracker", "shift_rect", "coerce_track"]
+__all__ = ["TrackConfig", "TrackResult", "Tracker", "shift_rect"]

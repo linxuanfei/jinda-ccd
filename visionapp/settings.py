@@ -12,6 +12,11 @@ DEFAULT_SETTINGS = {
     "csv_enabled": True,
     "save_ng_images": True,
     "save_ok_images": False,
+    "ng_keep_days": 30,
+    "save_mode": "ng",
+    "disk_min_free_gb": 5.0,
+    "disk_critical_free_gb": 1.0,
+    "results_max_gb": 0.0,
     "last_recipe": "",
     "last_source": {"kind": "synthetic", "path": "", "url": "", "index": 0},
     "output": {
@@ -27,6 +32,8 @@ DEFAULT_SETTINGS = {
     },
     "alarm": {"enabled": True, "beep_on_ng": True, "sound_path": "", "min_interval_s": 1.0,
               "on_merged": True},
+    "ui_scale": 1.25,
+    "auto_camera_stations": True,
     "security": {"require_login": False, "engineer_password_hash": ""},
 }
 
@@ -61,12 +68,22 @@ class AppSettings:
         self.data[key] = value
 
     @property
+    def ui_scale(self) -> float:
+        """界面缩放（现场嫌字小，默认 1.25）。"""
+        try:
+            return max(0.85, min(2.0, float(self.data.get("ui_scale", 1.25))))
+        except (TypeError, ValueError):
+            return 1.25
+
+    @property
     def recorder_cfg(self) -> dict[str, Any]:
         return {
             "root": self.data.get("results_root", "results"),
             "csv_enabled": bool(self.data.get("csv_enabled", True)),
             "save_ng_images": bool(self.data.get("save_ng_images", True)),
             "save_ok_images": bool(self.data.get("save_ok_images", False)),
+            "keep_days": int(self.data.get("ng_keep_days", 30) or 0),
+            "save_mode": str(self.data.get("save_mode", "ng") or "ng"),
         }
 
     @property

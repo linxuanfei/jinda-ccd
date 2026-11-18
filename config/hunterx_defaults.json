@@ -1,0 +1,121 @@
+{
+  "_说明": "从现场主机 HunterxSys.ini / Dim.ini / 2pin.HPro 反读出来的原始参数（2026-11-17 采集）。status=confirmed 表示有直接依据；status=guess 表示推断，需现场验证。",
+  "_来源": {
+    "HunterxSys.ini": "C:\\Users\\津达\\Downloads\\HunterxSys (1).ini（406 行，GBK）",
+    "Dim.ini": "C:\\Users\\津达\\Downloads\\Dim (1).ini（二次元测量参数）",
+    "2pin.HPro": "C:\\Users\\津达\\Downloads\\2pin.HPro（与 samples/2pin.HPro 字节级相同，SHA256 7766392C…）"
+  },
+
+  "工程": {
+    "模板路径": { "value": "D:\\2pin\\2pin.HPro", "status": "confirmed", "note": "注意是子目录 D:\\2pin\\，不是 D:\\2pin.HPro" },
+    "模板数目": { "value": 1, "status": "confirmed", "note": "现场只有一个在产配方" },
+    "公司名称": { "value": "汉特士科技", "status": "confirmed" },
+    "图像保存路径": { "value": "NULL", "status": "confirmed", "note": "原系统不存图；我们默认存 NG 图属于增强，需确认现场磁盘与保留策略" },
+    "报表路径": { "value": "NULL", "status": "confirmed" },
+    "显示检测区域边框": { "value": 1, "status": "confirmed" }
+  },
+
+  "相机": {
+    "相机个数": { "value": 2, "status": "confirmed", "note": "现场只有 2 路相机，不是 6 路" },
+    "相机类型": { "value": 90, "status": "confirmed", "note": "= 迈德威视（Bin 里 2pin.exe 引用 MVCAMSDK.DLL，hAcqMindVision8.dll 加载它）" },
+    "实测型号": { "value": "MV-GE507GC", "status": "confirmed", "note": "2026-11-17 真机枚举得到；彩色，2448×2048" },
+    "实测序列号": { "value": "056082520586", "status": "confirmed" },
+    "实测IP": { "value": "192.168.3.150 / 10.0.0.250（会变）", "status": "confirmed" },
+    "SDK版本": { "value": "MindVision Camera Platform 2.1.10.198（SDK v2.1.10.195，驱动 MvGigeLWF）", "status": "confirmed" },
+    "硬件IO硬触发": { "value": 1, "status": "confirmed", "note": "硬件触发，与我们默认 trigger=hardware 一致" },
+    "硬件IO软触发": { "value": 0, "status": "confirmed" },
+    "OK触发": { "value": 1, "status": "confirmed" },
+    "相机采集速度": { "value": 0, "status": "confirmed" },
+    "相机参数是否固定": { "value": 1, "status": "confirmed" },
+    "相机1AOI": { "value": [0, 0, 2592, 1944], "status": "confirmed", "note": "2592×1944 = 500 万像素，与 MV-GE500M-TPO 规格吻合" },
+    "相机2AOI": { "value": [0, 0, 2592, 1944], "status": "confirmed" },
+    "相机1比例": { "value": 10.0, "status": "guess", "note": "原厂「比例」字段，含义待反算" },
+    "相机1X比例": { "value": 12.6, "status": "guess" },
+    "相机1Y比例": { "value": 4.5, "status": "guess" },
+    "相机2比例": { "value": 10.0, "status": "guess" },
+    "相机2X比例": { "value": 9.4, "status": "guess" },
+    "相机2Y比例": { "value": 22.0, "status": "guess" },
+    "相机1视图比例": { "value": 1.012, "status": "confirmed" },
+    "相机2视图比例": { "value": 0.625, "status": "confirmed" },
+    "相机1视图": { "value": [0, 1, 978, 381], "status": "confirmed", "note": "上下两格，每格 978×380（4 画面布局只用 2 格）" },
+    "相机2视图": { "value": [0, 382, 978, 381], "status": "confirmed" },
+    "相机1曝光时间": { "value": 0, "status": "confirmed", "note": "通用字段为空，实际按品牌分支下发" },
+    "相机T1曝光": { "value": 500, "status": "guess", "note": "T 系列分支" },
+    "相机Basler1曝光": { "value": 95555, "status": "guess", "note": "Basler 分支（单位 µs → 95.5 ms，像长曝光的针脚检测）" },
+    "相机FC1曝光": { "value": 10.0, "status": "guess", "note": "FC 系列分支" },
+    "相机1增益": { "value": 0, "status": "confirmed" },
+    "相机1亮度": { "value": 2, "status": "confirmed" },
+    "相机1采集模式": { "value": 0, "status": "confirmed" }
+  },
+
+  "检测与判定": {
+    "PIN间距名称": { "value": "X方向距离", "status": "confirmed" },
+    "偏移度": { "value": "Y方向距离", "status": "confirmed", "note": "印证：X=间距，Y=贴板/偏移" },
+    "强制为圆": { "value": 1, "status": "confirmed", "note": "圆形拟合强制（圆形针脚）" },
+    "图像跟踪开启": { "value": 1, "status": "confirmed", "note": "原厂默认开跟踪，与我们默认一致" },
+    "跟踪类型": { "value": 0, "status": "confirmed" },
+    "点检测次数": { "value": 5, "status": "confirmed", "note": "原厂有「同一点测 5 次」的稳定化机制，我们还没做" },
+    "点检测间隔时间": { "value": 600, "status": "confirmed", "note": "ms" },
+    "点检测排除第一次": { "value": 1, "status": "confirmed", "note": "第一次丢弃（曝光/振动未稳）" },
+    "点检测偏差": { "value": 0.1, "status": "confirmed" },
+    "点检测极差": { "value": 0.1, "status": "confirmed" },
+    "点检测平均值": { "value": 0.1, "status": "confirmed" },
+    "搜索步长": { "value": 2, "status": "confirmed" },
+    "匹配步长": { "value": 10, "status": "confirmed" },
+    "当前检测模式": { "value": 1, "status": "confirmed" },
+    "最大放大倍率": { "value": 8.0, "status": "confirmed" },
+    "检测显示": { "value": { "WT": "WT", "OK": "OK", "NG": "NG" }, "status": "confirmed" }
+  },
+
+  "二次元测量（Dim.ini）": {
+    "HorzScale": { "value": 2.0, "status": "guess", "note": "水平换算比例，含义待与实测值反算" },
+    "VertScale": { "value": 6.0, "status": "guess" },
+    "测量类型": { "value": 7, "status": "confirmed" },
+    "测量模型": { "value": 1, "status": "confirmed" },
+    "自动捕捉搜索区域": { "value": 100, "status": "confirmed" }
+  },
+
+  "串口": {
+    "串口通信": { "value": 1, "status": "confirmed" },
+    "端口": { "value": 0, "status": "confirmed", "note": "COM1" },
+    "波特率": { "value": 5, "status": "guess", "note": "枚举索引，按常见表 5=38400；需现场确认（也见 app 里 9600/19200 的可能）" },
+    "校验位": { "value": 0, "status": "confirmed", "note": "无校验" },
+    "数据位": { "value": 0, "status": "guess", "note": "枚举 0=8 位" },
+    "停止位": { "value": 0, "status": "guess", "note": "枚举 0=1 位" },
+    "发送信息模式": { "value": 1, "status": "confirmed" },
+    "串口发送次序高到低": { "value": 1, "status": "confirmed" },
+    "串口输出最小相关系数": { "value": 0.5, "status": "confirmed" },
+    "串口一直发信号": { "value": 0, "status": "confirmed" }
+  },
+
+  "时序": {
+    "输入延时": { "value": 20, "status": "confirmed" },
+    "检测周期": { "value": 5, "status": "confirmed" },
+    "输出延时": { "value": 20, "status": "confirmed" },
+    "外部触发": { "value": 1, "status": "confirmed" }
+  },
+
+  "界面（颜色/字号）": {
+    "相机视图OK颜色": { "value": [0, 255, 0], "size": 140, "status": "confirmed" },
+    "相机视图NG颜色": { "value": [255, 0, 0], "size": 150, "status": "confirmed" },
+    "窗体背景": { "value": [255, 255, 255], "status": "confirmed", "note": "原厂是白底！我们是深色主题" },
+    "窗体OK": { "value": [0, 0, 0], "status": "confirmed" },
+    "窗体NG": { "value": [255, 0, 0], "status": "confirmed" },
+    "字体": { "value": "Arial", "status": "confirmed" }
+  },
+
+  "现场SDK二进制": {
+    "架构": { "value": "x86（32 位）", "status": "confirmed", "note": "2pin.exe / In-Vision8.2.exe / MVCAMSDK.dll / Pylon* 全是 x86；现场没有 MVCAMSDK_X64.dll" },
+    "SDK文件": { "value": "MVCAMSDK.dll（9 MB，8600+ 导出）", "status": "confirmed", "note": "导出 CameraSdkInit/CameraInit/CameraGetImageBuffer/CameraSetExposureTime 等 15 个，与我们的适配一一对应" },
+    "采集接口": { "value": "hAcqMindVision8.dll（HALCON MindVision 接口）", "status": "confirmed" },
+    "相机参数文件": { "value": "Config.ini [CMOS500C] Exp=258 GainAll=32 GainR/G/B=8 WIDTH=2592 HEIGHT=1944 CapMode=1 PackageSize=1500", "status": "confirmed" },
+    "其它品牌": { "value": "Bin 里还带 Basler Pylon、大恒、海康(HV*.ini)、TIS 等驱动文件", "status": "confirmed", "note": "原厂是万能版；现场只用迈德威视" }
+  },
+
+  "待确认": [
+    "相机类型 90 对应的品牌（等 Bin.rar 里的 DLL：Basler 还是 MVCAMSDK）",
+    "X比例/Y比例 与 mm/px 的关系（现场用「设计值 1mm」反算）",
+    "波特率索引 5 的实际波特率",
+    "原系统不存图，我们是否要存 NG 图/存多久"
+  ]
+}

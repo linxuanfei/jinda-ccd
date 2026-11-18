@@ -22,6 +22,7 @@ SOURCE_KINDS = [
     ("folder", "图片回放"),
     ("uvc", "USB / UVC 相机"),
     ("rtsp", "网络相机 RTSP"),
+    ("mindvision", "工业相机 MindVision（迈德威视）"),
 ]
 
 
@@ -48,6 +49,12 @@ class LineConfigDialog(QDialog):
         for rule in MERGE_RULES:
             self.cb_merge.addItem(MERGE_LABELS[rule], rule)
         self.cb_merge.setCurrentIndex(max(0, self.cb_merge.findData(self.line.merge_rule)))
+        self.sp_count = QSpinBox()
+        self.sp_count.setRange(1, 16)
+        self.sp_count.setValue(max(1, len(self.line.stations)))
+        self.sp_count.setToolTip("画面数 = 相机数：接几台相机就填几个（1~16）")
+        self.sp_count.valueChanged.connect(self._on_count_changed)
+        top.addRow("相机数量", self.sp_count)
         top.addRow("产线名称", self.ed_line_name)
         top.addRow("合并判定", self.cb_merge)
         v.addLayout(top)
@@ -85,6 +92,28 @@ class LineConfigDialog(QDialog):
         v.addWidget(bb)
 
         self._reload_list()
+
+    def _on_count_changed(self, n: int) -> None:
+        """相机数量变化 → 增删机位（新机位沿用第一台的相机类型与配方，序号递增）。"""
+        stations = self.line.stations
+        n = int(n)
+        if n < len(stations):
+            self.line.stations = stations[:n]
+        elif n > len(stations):
+            base = stations[0] if stations else None
+            for i in range(len(stations), n):
+                if base is not None:
+                    st = copy.deepcopy(base)
+                else:
+                    st = StationConfig()
+                st.id = i + 1
+                st.name = f"机位{i + 1}"
+                src = dict(st.source)
+                src["index"] = i
+                src["serial"] = ""
+                st.source = src
+                self.line.stations.append(st)
+        self._reload_list(select=min(self.list_st.currentRow(), len(self.line.stations) - 1))
 
     # ------------------------------------------------------------------ 表单
     def _build_form(self) -> QWidget:
@@ -225,7 +254,7 @@ class LineConfigDialog(QDialog):
         src = {"kind": kind}
         if kind == "folder":
             src["path"] = self.ed_path.text().strip()
-        elif kind == "uvc":
+        elif kind in ("uvc", "mindvision"):
             src["index"] = int(self.sp_index.value())
         elif kind == "rtsp":
             src["url"] = self.ed_url.text().strip()
@@ -239,7 +268,7 @@ class LineConfigDialog(QDialog):
     def _update_source_fields(self) -> None:
         kind = self.cb_kind.currentData()
         self.ed_path.setEnabled(kind == "folder")
-        self.sp_index.setEnabled(kind == "uvc")
+        self.sp_index.setEnabled(kind in ("uvc", "mindvision"))
         self.ed_url.setEnabled(kind == "rtsp")
 
     def _update_out_buttons(self) -> None:
@@ -288,10 +317,6 @@ class LineConfigDialog(QDialog):
 
     # ------------------------------------------------------------------ 机位增删
     def _add_station(self) -> None:
-        from ..camera_cfg import MAX_CAMERAS
-        if len(self.line.stations) >= MAX_CAMERAS:
-            QMessageBox.information(self, "机位", f"相机路数最多 {MAX_CAMERAS}，当前不是锁死 4 路")
-            return
         new_id = max([s.id for s in self.line.stations], default=0) + 1
         st = StationConfig(id=new_id, name=f"机位{new_id}", enabled=True,
                            source={"kind": "synthetic"},

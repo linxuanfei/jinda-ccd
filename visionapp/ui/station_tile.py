@@ -26,7 +26,7 @@ class StationTile(QWidget):
         v.setSpacing(4)
 
         head = QWidget()
-        head.setFixedHeight(28)
+        head.setFixedHeight(int(round(28 * theme.scale())))
         hh = QHBoxLayout(head)
         hh.setContentsMargins(6, 0, 8, 0)
         hh.setSpacing(8)
@@ -47,11 +47,31 @@ class StationTile(QWidget):
         self.view.viewClicked.connect(lambda: self.clicked.emit(self.index))
         v.addWidget(self.view, 1)
 
+        # 画面右下角 HUD：FPS / 单帧耗时（不再占用右侧统计面板）
+        self.lbl_perf = QLabel("FPS --   单帧 -- ms", self)
+        self.lbl_perf.setObjectName("tilePerf")
+        self.lbl_perf.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        theme.set_class(self.lbl_perf, "mono")
+
         self.set_active(False)
 
     # ------------------------------------------------------------------ 状态
     def set_active(self, active: bool) -> None:
         theme.set_prop(self, "selected", "true" if active else "false")
+
+    def resizeEvent(self, event) -> None:      # noqa: N802
+        super().resizeEvent(event)
+        self._place_perf()
+
+    def _place_perf(self) -> None:
+        if not hasattr(self, "lbl_perf"):
+            return
+        self.lbl_perf.adjustSize()
+        m = 14
+        x = max(m, self.width() - self.lbl_perf.width() - m)
+        y = max(m, self.height() - self.lbl_perf.height() - m)
+        self.lbl_perf.move(x, y)
+        self.lbl_perf.raise_()
 
     def update_stats(self, snap, enabled: bool = True) -> None:
         if not enabled:
@@ -66,5 +86,10 @@ class StationTile(QWidget):
             state = "ok" if ok else "ng"
         rate = f"{snap.yield_rate * 100:.0f}%" if snap.total else "--"
         self.header.setText(
-            f"{self.name}   {verdict}   OK {snap.ok}  NG {snap.ng}  {rate}   {snap.last_elapsed_ms:.0f}ms")
+            f"{self.name}   {verdict}   OK {snap.ok}  NG {snap.ng}   良率 {rate}")
         theme.set_state(self.led, state)
+        # 右下角 HUD
+        fps = f"{snap.fps:.1f}" if getattr(snap, "fps", 0) else "--"
+        cost = f"{snap.last_elapsed_ms:.1f}" if snap.total else "--"
+        self.lbl_perf.setText(f"FPS {fps}   单帧 {cost} ms")
+        self._place_perf()

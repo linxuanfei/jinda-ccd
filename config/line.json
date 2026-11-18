@@ -1,12 +1,90 @@
 {
-  "name": "默认产线（6 机位）",
+  "name": "现场产线（6 机位 / 迈德威视）",
   "merge_rule": "all_ok",
   "stations": [
-    { "id": 1, "name": "机位1", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" },
-    { "id": 2, "name": "机位2", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" },
-    { "id": 3, "name": "机位3", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" },
-    { "id": 4, "name": "机位4", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" },
-    { "id": 5, "name": "机位5", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" },
-    { "id": 6, "name": "机位6", "enabled": true, "source": { "kind": "synthetic" }, "recipe": "recipes/sim_demo.json" }
+    {
+      "id": 1,
+      "name": "机位1",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "056082520586",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 2,
+      "name": "机位2",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 3,
+      "name": "机位3",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 4,
+      "name": "机位4",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 5,
+      "name": "机位5",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 6,
+      "name": "机位6",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    }
   ]
 }

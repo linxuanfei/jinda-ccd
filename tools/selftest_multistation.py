@@ -35,7 +35,7 @@ def main() -> int:
                 "output_cfg": settings.output_cfg,
                 "alarm_cfg": settings.alarm_cfg}.get(key, default)
 
-    line = LineConfig.load(os.path.join(BASE, "config", "line.json"))
+    line = LineConfig.load(os.path.join(BASE, "config", "line_6stations.json"))
     print(f"[0] 产线: {line.name}  机位数={len(line.stations)}  合并规则={line.merge_rule}")
     if len(line.stations) != 6:
         fails.append(f"机位数应为 6，实际 {len(line.stations)}")
@@ -100,7 +100,7 @@ def main() -> int:
     # ---------------- 6) 界面：6 个画面块 ----------------
     from visionapp.ui.main_window import MainWindow
     app = QApplication.instance() or QApplication(sys.argv)
-    line2 = LineConfig.load(os.path.join(BASE, "config", "line.json"))
+    line2 = LineConfig.load(os.path.join(BASE, "config", "line_6stations.json"))
     win = MainWindow(line=line2, settings=settings)
     win.timer.stop()
     print(f"[6] 界面: 画面块={len(win.tiles)}  机位下拉={win.cb_station.count()}")

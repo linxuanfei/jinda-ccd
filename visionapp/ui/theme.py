@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ..qtcompat import QFont
 from ..qtcompat import QApplication, QWidget
 
@@ -126,7 +128,7 @@ QWidget {
     background: {{bg.base}};
     color: {{text.primary}};
     font-family: {{ui.font}};
-    font-size: 13px;
+    font-size: 15px;
 }
 QMainWindow, QDialog { background: {{bg.base}}; }
 QToolTip {
@@ -145,13 +147,17 @@ QToolBar {
     padding: 4px 8px;
 }
 QToolBar::separator { background: {{border.subtle}}; width: 1px; margin: 4px 6px; }
+QMenuBar { font-size: 17px; }
+QMenuBar::item { padding: 4px 10px; }
+QMenu { font-size: 17px; }
+
 QToolBar QToolButton {
     background: transparent;
     color: {{text.primary}};
     border: 1px solid transparent;
     border-radius: {{radius.sm}}px;
-    padding: 4px 7px;
-    font-size: 12px;
+    padding: 5px 9px;
+    font-size: 17px;
 }
 QToolBar QToolButton:hover { background: {{bg.rise}}; border-color: {{border.subtle}}; }
 QToolBar QToolButton:pressed { background: {{accent.cyan.dim}}; border-color: {{accent.cyan}}; }
@@ -382,8 +388,40 @@ QLabel#tileLed[state="idle"] { background: {{state.idle}}; }
 """
 
 
+# ---------------------------------------------------------------- 界面缩放
+# 现场反馈“字太小”，做成可调：默认 1.25 倍。
+# 快捷键：Ctrl+= 放大 / Ctrl+- 缩小 / Ctrl+0 复位（会记到 config/app_settings.json）。
+_SCALE = 1.45
+_BASE_PX = 13
+
+
+def set_scale(value: float) -> float:
+    """设置界面缩放（0.85 ~ 2.0），返回生效值。"""
+    global _SCALE
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = 1.0
+    _SCALE = max(0.85, min(2.0, round(v, 2)))
+    return _SCALE
+
+
+def scale() -> float:
+    return _SCALE
+
+
+def _apply_scale(template: str) -> str:
+    """把模板里所有 `font-size: Npx` 按缩放比换算（其余尺寸不动）。"""
+
+    def repl(m):
+        px = int(round(int(m.group(1)) * _SCALE))
+        return f"font-size: {max(9, px)}px"
+
+    return re.sub(r"font-size:\s*(\d+)px", repl, template)
+
+
 def build_qss() -> str:
-    qss = _QSS_TEMPLATE
+    qss = _apply_scale(_QSS_TEMPLATE)
     for key, val in _tokens().items():
         qss = qss.replace("{{" + key + "}}", val)
     return qss

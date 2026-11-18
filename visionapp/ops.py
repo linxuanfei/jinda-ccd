@@ -20,11 +20,8 @@ import cv2
 import numpy as np
 
 from .core import Frame, Rect
+from .tuning import resolve_pick_zone, sample_point
 from .imgio import imread as imread_safe
-from .tuning import (
-    POLARITIES, axis_reading, judge_from_nominal, pair_indices, sample_point,
-    shielded_count, threshold_block_reason,
-)
 
 
 @dataclass
@@ -35,7 +32,6 @@ class Item:
     roi: Rect | None = None
     params: dict[str, Any] = field(default_factory=dict)
     judge: dict[str, Any] | None = None
-    judges: list[dict[str, Any]] = field(default_factory=list)
     name: str = ""
     station: int = 1
 
@@ -49,7 +45,7 @@ class Blob:
     cy: float
     area: float
     bbox: tuple[int, int, int, int]   # x, y, w, h（整图坐标）
-    pick: tuple[float, float] | None = None
+    pick: tuple[float, float] | None = None    # 抓取位置取出来的测量点（整图坐标）
 
     def as_dict(self) -> dict[str, Any]:
         d = {"cx": self.cx, "cy": self.cy, "area": self.area, "bbox": list(self.bbox)}
@@ -68,14 +64,9 @@ class ItemResult:
     blobs: list[Blob] = field(default_factory=list)
     match: dict[str, Any] | None = None
     message: str = ""
-    overlays: list[dict[str, Any]] = field(default_factory=list)   # 供界面画框
-    datum: str = ""
-    design: str = ""
-    area: float | None = None
-    ng_count: int = 0
-    blocked: bool = False
-    steps: list[dict[str, Any]] = field(default_factory=list)
-    mask: np.ndarray | None = None      # 阈值屏蔽区，只用于画面，不进 JSON
+    overlays: list[dict[str, Any]] = field(default_factory=list)
+    roi: Any = None                  # 这个检测项的框（用于 NG 时画红框）   # 供界面画框
+    mask: np.ndarray | None = None      # 阈值屏蔽区（0/255），仅用于画面叠加，不进 JSON
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -87,12 +78,6 @@ class ItemResult:
             "message": self.message,
             "blobs": [b.as_dict() for b in self.blobs],
             "match": self.match,
-            "datum": self.datum,
-            "design": self.design,
-            "area": None if self.area is None else round(float(self.area), 3),
-            "ng_count": int(self.ng_count),
-            "blocked": self.blocked,
-            "steps": self.steps,
         }
 
 
@@ -120,13 +105,31 @@ def _to_gray(img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
-def _design_text(params: dict[str, Any]) -> str:
-    if "nominal" not in params:
-        return ""
-    return f"{float(params['nominal']):g} ± {abs(float(params.get('tol_upper', 0) or 0)):g}"
+def _clamp_threshold(v: Any, default: int = 128) -> int:
+    """阈值限幅到 1~254。
+
+    现场规则（In-Vision）：「阈值最小 0、最大 255，**最大可用阈值 254**；
+    调到 0 或 255 会抓取错误」。这里统一钳到 1~254，并保持整数。
+    """
+    try:
+        t = int(round(float(v)))
+    except (TypeError, ValueError):
+        t = default
+    return max(1, min(254, t))
 
 
 def _apply_judge(judge: dict[str, Any] | None, value: float | None) -> bool | None:
+    """判定。支持四种口径：
+
+    - ``range``  : min ~ max 区间
+    - ``max``    : 上限（value ≤ value）
+    - ``min``    : 下限（value ≥ value）
+    - ``design`` : **设计值 ± 容差**（对齐现场 In-Vision 的用法）
+      ``{"kind": "design", "design": 1.0, "tol_upper": 0.08, "tol_lower": -0.08, "abs": false}``
+      容差是**相对设计值的偏差**：合格区间 = [design+tol_lower, design+tol_upper]。
+      ``abs: true``（界面"结果取绝对值"）时改为 |value-design| ≤ max(|tol_upper|, |tol_lower|)。
+      也兼容对称写法 ``"tol": 0.08``（等价于上下各 0.08）。
+    """
     if not judge or value is None:
         return None
     kind = judge.get("kind", "range")
@@ -173,10 +176,121 @@ def _apply_judge(judge: dict[str, Any] | None, value: float | None) -> bool | No
 # 算子实现
 # --------------------------------------------------------------------------- #
 
+def _cells_find(frame: Frame, item: Item, p: dict, cells: list) -> ItemResult:
+    """按用户保存的小框逐个检测（每个小框独立判定，可任意个数）。"""
+    from .core import Rect as _Rect
+
+    min_area = float(p.get("min_area", 20))
+    max_area = float(p.get("max_area", 1e12))
+    overlays: list[dict] = []
+    bad: list[str] = []
+    areas: list[float] = []
+    total = 0
+    for i, c in enumerate(cells):
+        x, y, w, h = [int(v) for v in c]
+        if w < 2 or h < 2:
+            continue
+        sub = Item(id=item.id, type=item.type, roi=_Rect(x, y, w, h),
+                   params={**p, "cells": None, "grid_cols": 1, "grid_rows": 1,
+                           "inset_l": 0, "inset_r": 0, "inset_t": 0, "inset_b": 0})
+        r = find_blobs(frame, sub, {})
+        cnt = len(r.blobs)
+        total += cnt
+        good = cnt >= 1 and all(min_area <= b.area <= max_area for b in r.blobs)
+        if cnt:
+            areas.append(min(b.area for b in r.blobs))
+        if not good:
+            bad.append(f"{i + 1}号框")
+        overlays.append({"kind": "box", "rect": (x, y, w, h),
+                         "color": (0, 200, 0) if good else (0, 0, 255)})
+    res = ItemResult(item_id=item.id, type=item.type,
+                     value=(min(areas) if areas else 0.0), unit="px²", ok=not bad)
+    res.overlays = overlays
+    res.message = (f"小框 {len(cells)} 个：{len(cells) - len(bad)}/{len(cells)} 合格，共 {total} 个斑块"
+                   + (f"；不合格：{','.join(bad[:6])}" if bad else ""))
+    res.roi = None
+    return res
+
+
+def _grid_find(frame: Frame, item: Item, p: dict, x0: int, y0: int,
+               cw: float, ch: float, cols: int, rows: int) -> ItemResult:
+    """把大框切成 cols×rows 格，每格独立找斑块；有任何一格不合格就判 NG。"""
+    from .core import Rect as _Rect
+
+    min_area = float(p.get("min_area", 20))
+    max_area = float(p.get("max_area", 1e12))
+    overlays: list[dict] = []
+    fail_cells: list[str] = []
+    areas: list[float] = []
+    total = 0
+    for gy in range(rows):
+        for gx in range(cols):
+            cell = _Rect(int(x0 + gx * cw), int(y0 + gy * ch), max(1, int(cw)), max(1, int(ch)))
+            sub = Item(id=item.id, type=item.type, roi=cell, params={**p, "grid_cols": 1, "grid_rows": 1,
+                                                                     "inset_l": 0, "inset_r": 0,
+                                                                     "inset_t": 0, "inset_b": 0})
+            r = find_blobs(frame, sub, {})
+            cnt = len(r.blobs)
+            total += cnt
+            good = cnt >= 1 and all(min_area <= b.area <= max_area for b in r.blobs)
+            if cnt:
+                areas.append(min(b.area for b in r.blobs))
+            if not good:
+                fail_cells.append(f"{gy * cols + gx + 1}格")
+            overlays.append({
+                "kind": "box",
+                "rect": (cell.x, cell.y, cell.w, cell.h),
+                "color": (0, 200, 0) if good else (0, 0, 255),
+            })
+    ok = not fail_cells
+    res = ItemResult(item_id=item.id, type=item.type, value=(min(areas) if areas else 0.0),
+                     unit="px²", ok=ok)
+    res.overlays = overlays
+    res.message = (f"{rows}行×{cols}列：{rows * cols - len(fail_cells)}/{rows * cols} 格合格，共 {total} 个斑块"
+                   + (f"；不合格：{','.join(fail_cells[:6])}" if fail_cells else ""))
+    res.roi = None          # 用逐格框代替大框
+    return res
+
+
 @register("find_blobs")
 def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResult:
-    """阈值 + 形态学 + 连通域，找斑块。"""
+    """阈值 + 形态学 + 连通域，找斑块。
+
+    阈值两种用法（对齐现场）：
+    - **区间**（推荐）：``threshold_low`` ~ ``threshold_high``（如 111~255），只取区间内的像素；
+    - 单阈值（兼容旧配方）：只给 ``threshold``，按 ``threshold_mode`` 取亮/暗。
+    阈值一律限幅到 **1~254**（0/255 在 In-Vision 里会抓取错误）。
+    过滤：``min_area`` / ``max_area`` / ``min_width`` / ``min_height`` / ``min_circularity``。
+    """
     p = item.params
+    # 大框分割：把 ROI 先按"抓取范围"内缩，再切成 cols×rows 个小框分别检测
+    # 有手动画/改过的小框就按小框来（一个框里可以随便分几个，且能单独挪）
+    cells = p.get("cells")
+    if cells:
+        return _cells_find(frame, item, p, cells)
+    cols = max(1, int(p.get("grid_cols", 1) or 1))
+    rows = max(1, int(p.get("grid_rows", 1) or 1))
+    _roi = item.roi
+    if _roi is not None and (cols > 1 or rows > 1 or any(
+            float(p.get(k, 0) or 0) for k in ("inset_l", "inset_r", "inset_t", "inset_b"))):
+        from .core import Rect as _Rect
+
+        l = int(float(p.get("inset_l", 0) or 0))
+        r = int(float(p.get("inset_r", 0) or 0))
+        t = int(float(p.get("inset_t", 0) or 0))
+        b = int(float(p.get("inset_b", 0) or 0))
+        x0 = int(_roi.x) + l
+        y0 = int(_roi.y) + t
+        x1 = int(_roi.x + _roi.w) - r
+        y1 = int(_roi.y + _roi.h) - b
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            x0, y0 = int(_roi.x), int(_roi.y)
+            x1, y1 = int(_roi.x + _roi.w), int(_roi.y + _roi.h)
+        cw = (x1 - x0) / float(cols)
+        ch = (y1 - y0) / float(rows)
+        item.roi = _Rect(0, 0, 1, 1)          # 占位，下面逐格处理
+        return _grid_find(frame, item, p, x0, y0, cw, ch, cols, rows)
+
     img, ox, oy = _crop(frame, item.roi)
     gray = _to_gray(img)
     if p.get("blur", 0):
@@ -184,25 +298,22 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
         gray = cv2.GaussianBlur(gray, (k, k), 0)
 
     mode = p.get("threshold_mode", "dark")     # dark: 亮斑块；light: 暗斑块
-    low_raw = p.get("threshold_low", p.get("threshold", 128))
-    thr = int(low_raw if low_raw is not None and low_raw != "" else 128)
-    high = p.get("threshold_high", None)
-    high_i = None if high is None or high == "" else int(high)
-    blocked = threshold_block_reason(thr, high_i)
-    if blocked:
-        # 上限 255 不能当成「没有上限」继续出斑块。
-        return ItemResult(
-            item_id=item.id, type=item.type, ok=False, blocked=True,
-            message=blocked, value=None, unit="个",
-        )
-    shielded = 0
-    if high_i is not None:
-        shielded = shielded_count(gray, thr, high_i)
-        mask = ((gray >= thr) & (gray <= high_i)).astype(np.uint8) * 255
-    elif mode == "dark":
-        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+    lo_raw, hi_raw = p.get("threshold_low"), p.get("threshold_high")
+    if lo_raw is None and hi_raw is None:
+        thr = _clamp_threshold(p.get("threshold", 128))
+        if mode == "dark":
+            _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+        else:
+            _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
     else:
-        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
+        lo = _clamp_threshold(lo_raw if lo_raw is not None else 1, default=1)
+        # 上阈值 255 表示"一直到最亮"（纯白 255 的斑块也要能抓），不能钳成 254
+        hi = 255 if (hi_raw is None or float(hi_raw) >= 255) else _clamp_threshold(hi_raw, default=254)
+        if lo > hi:
+            lo, hi = hi, lo
+        mask = cv2.inRange(gray, lo, hi)
+        if mode == "light":                    # 暗斑块 = 区间之外
+            mask = cv2.bitwise_not(mask)
 
     ksize = int(p.get("morph_kernel", 3))
     if ksize > 0:
@@ -236,48 +347,35 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
             continue
         cx = m["m10"] / m["m00"] + ox
         cy = m["m01"] / m["m00"] + oy
-        bbox = (x + ox, y + oy, w, h)
-        polarity = str(p.get("polarity", "") or "")
-        if polarity in POLARITIES:
-            cx, cy = sample_point(bbox, polarity)
-        blobs.append(Blob(cx=float(cx), cy=float(cy), area=a, bbox=bbox))
+        blobs.append(Blob(cx=cx, cy=cy, area=a, bbox=(x + ox, y + oy, w, h)))
 
-    zone = str(p.get("pick_zone", "center") or "center").lower()
-    if zone not in ("top", "upper", "center", "lower", "bottom"):
-        zone = "center"
+    # ---- 抓取位置：按"黑白×区位"从斑块边界取测量点 ----
+    zone = p.get("pick_zone", "center")
+    # "白色中上/黑色中下" 这种说法自带黑白语义：白色=找亮块，黑色=找暗块
+    _z = str(zone)
+    if _z.startswith("白色"):
+        p["threshold_mode"] = "light"
+    elif _z.startswith("黑色"):
+        p["threshold_mode"] = "dark"
+    pick_offset = float(p.get("pick_offset", 0) or 0)
     for b in blobs:
-        x, y, w, h = b.bbox
-        if zone == "top":
-            py = float(y)
-        elif zone == "upper":
-            py = y + h * 0.25
-        elif zone == "lower":
-            py = y + h * 0.75
-        elif zone == "bottom":
-            py = float(y + h)
-        else:
-            py = float(y + h / 2.0)
-        b.pick = (float(x + w / 2.0), py)
+        b.pick = sample_point(b.bbox, zone, pick_offset)
 
     blobs.sort(key=lambda b: b.cx)
     res = ItemResult(item_id=item.id, type=item.type, blobs=blobs, value=float(len(blobs)), unit="个")
     res.ok = _apply_judge(item.judge, res.value)
-    res.area = max((b.area for b in blobs), default=None)
     res.message = f"找到 {len(blobs)} 个斑块"
-    if high_i is not None:
-        res.message += f"  屏蔽 {shielded}"
     color = (0, 255, 0) if res.ok is not False else (0, 0, 255)
     res.overlays = [{"kind": "box", "rect": b.bbox, "color": color} for b in blobs]
+    # 画出抓取点（现场调"抓取位置"时靠它看对不对）
     if str(p.get("show_pick", "off")).lower() in ("on", "1", "true", "yes"):
         for b in blobs:
             if b.pick is not None:
                 res.overlays.append({"kind": "cross", "p": b.pick, "color": (255, 0, 255)})
+    # ---- 阈值屏蔽区：把被排除的像素做成红色蒙版（现场调阈值时用）----
     if str(p.get("show_mask", "off")).lower() in ("on", "1", "true", "yes"):
         excluded = cv2.bitwise_not(mask)
-        full = np.zeros((frame.height, frame.width), np.uint8)
-        eh, ew = excluded.shape[:2]
-        full[oy:oy + eh, ox:ox + ew] = excluded
-        res.mask = full
+        res.mask = excluded
     return res
 
 
@@ -285,94 +383,80 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
 def distance_pp(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResult:
     """取两个斑块中心，算距离（可选换算 mm）。"""
     p = item.params
-    src = ctx.get(p.get("src", ""))
-    if src is not None and src.blocked:
-        return ItemResult(
-            item_id=item.id, type=item.type, ok=False, blocked=True,
-            message="定位已被阈值拦截，本次不测量",
-        )
-    if src is None or len(src.blobs) < 2:
-        return ItemResult(item_id=item.id, type=item.type, ok=False, message="依赖的斑块数量不足")
 
-    ia = int(p.get("blob_a", 0))
-    ib = int(p.get("blob_b", 1))
-    axis = str(p.get("axis", "xy") or "xy")
-    each_step = p.get("each_step") in (True, 1, "1", "是", "true", "True")
+    def _first_point(ref_id: str):
+        """取某个检测项第一个斑块的测量点（优先抓取位置）。"""
+        r = ctx.get(str(ref_id or ""))
+        if r is None or not r.blobs:
+            return None, None
+        bl = r.blobs[0]
+        use_pick = str(p.get("use_pick", "off")).lower() in ("on", "1", "true", "yes")
+        if use_pick and bl.pick:
+            return float(bl.pick[0]), float(bl.pick[1]), r
+        return float(bl.cx), float(bl.cy), r
+
+    from_item = str(p.get("from_item", "") or "")
+    to_item = str(p.get("to_item", "") or "")
+    ax = ay = bx = by = None
+    pa = pb = None
+    if from_item and to_item:
+        ax, ay, ra = _first_point(from_item)
+        bx, by, rb = _first_point(to_item)
+        pa, pb = ra, rb
+        if ax is None or bx is None:
+            return ItemResult(item_id=item.id, type=item.type, ok=False,
+                              message=f"所选检测框没有可用斑块（{from_item} / {to_item}）")
+
+    src = ctx.get(p.get("src", ""))
+    if ax is None:
+        if src is None or len(src.blobs) < 2:
+            return ItemResult(item_id=item.id, type=item.type, ok=False,
+                              message="依赖的斑块数量不足（请选择起始/终止检测框）")
+        ia = int(p.get("blob_a", 0))
+        ib = int(p.get("blob_b", 1))
+        a, b = src.blobs[ia], src.blobs[ib]
+    # 用抓取位置取出的测量点（现场"抓取位置"就是决定量哪里）；没有就退回中心
     use_pick = str(p.get("use_pick", "off")).lower() in ("on", "1", "true", "yes")
-    scale = float(p.get("mm_per_px", 0) or 0)
-    if scale <= 0:                       # 未显式给比例时，用配方里的标定
-        scale = float(frame.meta.get("mm_per_px", 0) or 0)
-    scale_x = float(frame.meta.get("mm_per_px_x", 0) or frame.meta.get("x_mm_per_px", 0) or 0)
-    scale_y = float(frame.meta.get("mm_per_px_y", 0) or frame.meta.get("y_mm_per_px", 0) or 0)
-    if axis in ("x", "y") and scale > 0:
-        # 检测项上写了比例时，只作用在所选轴，避免另一轴串进来。
-        if axis == "x":
-            scale_x = scale_x or scale
-        else:
-            scale_y = scale_y or scale
-    judge = item.judge or judge_from_nominal(p)
-    pairs = pair_indices(len(src.blobs), ia, ib, each_step and axis in ("x", "y"))
-    steps = []
-    note = ""
-    for i, j in pairs:
-        a, b = src.blobs[i], src.blobs[j]
+    if ax is None:
         ax, ay = (a.pick if use_pick and a.pick else (a.cx, a.cy))
         bx, by = (b.pick if use_pick and b.pick else (b.cx, b.cy))
-        if axis in ("x", "y"):
-            value_i, note = axis_reading(ax, ay, bx, by, axis, scale_x, scale_y, scale)
-            used = scale_x if axis == "x" else scale_y
-            if used <= 0:
-                used = scale
-            unit_i = "mm" if used > 0 else "px"
+    dx = float(bx - ax)
+    dy = float(by - ay)
+    dist_px = float(np.hypot(dx, dy))
+    # 显式 mm_per_px 优先（X/Y 同比例）；否则用配方里的 X/Y 分别标定
+    scale = float(p.get("mm_per_px", 0) or 0)
+    if scale > 0:
+        sx = sy = scale
+    else:
+        sx = float(frame.meta.get("x_mm_per_px", 0) or frame.meta.get("mm_per_px", 0) or 0)
+        sy = float(frame.meta.get("y_mm_per_px", 0) or 0) or sx
+    axis = str(p.get("axis", "dist") or "dist")
+    if axis == "x":
+        dist_use, name = abs(dx), "X方向距离"
+    elif axis == "y":
+        dist_use, name = abs(dy), "Y方向距离"
+    else:
+        dist_use, name = dist_px, "直线距离"
+    if sx > 0 or sy > 0:
+        if axis == "x":
+            value = abs(dx) * (sx or sy)
+        elif axis == "y":
+            value = abs(dy) * (sy or sx)
         else:
-            explicit = float(p.get("mm_per_px", 0) or 0)
-            dx = float(bx - ax)
-            dy = float(by - ay)
-            dist_px = float(np.hypot(dx, dy))
-            if explicit > 0:
-                value_i = dist_px * explicit
-                unit_i = "mm"
-            else:
-                sx = scale_x or scale
-                sy = scale_y or sx
-                if sx > 0 or sy > 0:
-                    value_i = float(np.hypot(dx * (sx or sy), dy * (sy or sx)))
-                    unit_i = "mm"
-                else:
-                    value_i = dist_px
-                    unit_i = "px"
-            note = "距离"
-        ok_i = _apply_judge(judge, value_i)
-        steps.append({
-            "datum": str(p.get("datum", "") or ""),
-            "design": _design_text(p),
-            "value": round(float(value_i), 4),
-            "unit": unit_i,
-            "ok": ok_i,
-            "area": round(float(a.area + b.area), 3),
-            "pair": [i, j],
-        })
-    a, b = src.blobs[pairs[0][0]], src.blobs[pairs[0][1]]
-    value = float(steps[0]["value"])
-    unit = steps[0]["unit"]
+            value = float(np.hypot(dx * (sx or sy), dy * (sy or sx)))
+        unit = "mm"
+    else:
+        value = dist_use
+        unit = "px"
+
     res = ItemResult(item_id=item.id, type=item.type, value=value, unit=unit)
-    res.ok = all(s["ok"] is not False for s in steps) if judge else None
-    if any(s["ok"] is False for s in steps):
-        res.ok = False
-    res.datum = str(p.get("datum", "") or p.get("src", ""))
-    res.design = _design_text(p)
-    res.area = float(a.area + b.area)
-    res.steps = steps if each_step and axis in ("x", "y") else []
-    ax0, ay0 = (a.pick if use_pick and a.pick else (a.cx, a.cy))
-    bx0, by0 = (b.pick if use_pick and b.pick else (b.cx, b.cy))
-    res.message = f"{note}  {ax0:.1f},{ay0:.1f} → {bx0:.1f},{by0:.1f}"
-    if len(steps) > 1:
-        res.message += f"  共 {len(steps)} 段"
+    res.ok = _apply_judge(item.judge, value)
+    res.message = f"{name}  {ax:.1f},{ay:.1f} → {bx:.1f},{by:.1f}"
     res.overlays = [
-        {"kind": "line", "p1": (ax0, ay0), "p2": (bx0, by0), "color": (0, 200, 255)},
-        {"kind": "cross", "p": (ax0, ay0), "color": (255, 0, 255)},
-        {"kind": "cross", "p": (bx0, by0), "color": (255, 0, 255)},
-        {"kind": "text", "p": ((ax0 + bx0) / 2, (ay0 + by0) / 2 - 12),
+        {"kind": "line", "p1": (ax, ay), "p2": (bx, by), "color": (0, 200, 255)},
+        {"kind": "cross", "p": (ax, ay), "color": (255, 0, 255)},
+        {"kind": "cross", "p": (bx, by), "color": (255, 0, 255)},
+        {"kind": "text", "p": ((ax + bx) / 2, (ay + by) / 2 - 12),
          "text": f"{value:.3f} {unit}", "color": (0, 255, 255)},
     ]
     return res
@@ -417,11 +501,6 @@ def area_of_blob(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemRe
     """取某个斑块的面积（"面积"判定）。"""
     p = item.params
     src = ctx.get(p.get("src", ""))
-    if src is not None and src.blocked:
-        return ItemResult(
-            item_id=item.id, type=item.type, ok=False, blocked=True,
-            message="定位已被阈值拦截，本次不测量",
-        )
     if src is None or not src.blobs:
         return ItemResult(item_id=item.id, type=item.type, ok=False, message="依赖的斑块不存在")
     idx = int(p.get("index", 0))
@@ -430,9 +509,8 @@ def area_of_blob(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemRe
     area = src.blobs[idx].area
     scale = float(p.get("mm2_per_px2", 0) or 0)
     if scale <= 0:
-        sx = float(frame.meta.get("x_mm_per_px", 0) or frame.meta.get("mm_per_px_x", 0)
-                   or frame.meta.get("mm_per_px", 0) or 0)
-        sy = float(frame.meta.get("y_mm_per_px", 0) or frame.meta.get("mm_per_px_y", 0) or 0) or sx
+        sx = float(frame.meta.get("x_mm_per_px", 0) or frame.meta.get("mm_per_px", 0) or 0)
+        sy = float(frame.meta.get("y_mm_per_px", 0) or 0) or sx
         scale = sx * (sy or sx)
     value = area * scale if scale > 0 else area
     res = ItemResult(item_id=item.id, type=item.type, value=value, unit="mm2" if scale > 0 else "px2")
@@ -442,6 +520,33 @@ def area_of_blob(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemRe
 
 @register("angle_ppp")
 def angle_ppp(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResult:
+    p = item.params
+    ids = [str(p.get(k, "") or "") for k in ("p1_item", "p2_item", "p3_item")]
+    if all(ids):
+        pts = []
+        for rid in ids:
+            r = ctx.get(rid)
+            if r is None or not r.blobs:
+                return ItemResult(item_id=item.id, type=item.type, ok=False,
+                                  message=f"检测框 {rid} 没有可用斑点")
+            b = r.blobs[0]
+            use_pick = str(p.get("use_pick", "off")).lower() in ("on", "1", "true", "yes")
+            pts.append(b.pick if (use_pick and b.pick) else (b.cx, b.cy))
+        (x1, y1), (x2, y2), (x3, y3) = pts
+        v1 = (x2 - x1, y2 - y1)
+        v2 = (x3 - x2, y3 - y2)
+        import math as _m
+        ang = abs(_m.degrees(_m.atan2(v1[0] * v2[1] - v1[1] * v2[0],
+                                    v1[0] * v2[0] + v1[1] * v2[1])))
+        res = ItemResult(item_id=item.id, type=item.type, value=ang, unit="°")
+        res.ok = _apply_judge(item.judge, ang)
+        res.message = f"三点角度 {ang:.2f}°"
+        res.overlays = [
+            {"kind": "line", "p1": (x1, y1), "p2": (x2, y2), "color": (0, 200, 255)},
+            {"kind": "line", "p1": (x2, y2), "p2": (x3, y3), "color": (0, 200, 255)},
+            {"kind": "text", "p": (x2, y2 - 14), "text": f"{ang:.2f}°", "color": (0, 255, 255)},
+        ]
+        return res
     """三点夹角（顶点为 b）。参数：points = [[x1,y1],[x2,y2],[x3,y3]]。"""
     p = item.params
     pts = np.array(p.get("points", []), dtype=np.float64)

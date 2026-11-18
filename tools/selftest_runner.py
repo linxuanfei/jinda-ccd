@@ -61,7 +61,14 @@ def main() -> int:
     if snap.ng != 0:
         failures.append(f"预期全 OK，实际 NG={snap.ng}")
 
-    csv_path = os.path.join(OUT, recipe.name, time.strftime("%Y-%m-%d") + ".csv")
+    csv_path = ""
+    for dp, _d, fs in os.walk(OUT):
+        for f in fs:
+            if f.endswith(".csv"):
+                csv_path = os.path.join(dp, f)
+                break
+        if csv_path:
+            break
     if not os.path.exists(csv_path):
         failures.append(f"CSV 未生成: {csv_path}")
     else:
@@ -86,8 +93,11 @@ def main() -> int:
     wait_until(lambda: runner2.snapshot().total >= 5)
     runner2.stop()
     snap2 = runner2.snapshot()
-    ng_dir = os.path.join(OUT, ng_recipe.name, "NG", time.strftime("%Y-%m-%d"))
-    n_imgs = len(os.listdir(ng_dir)) if os.path.isdir(ng_dir) else 0
+    # 新路径：<root>/<日期>/<时间_相机号>/NG/*.png —— 直接数所有 png
+    n_imgs = 0
+    for dp, _d, fs in os.walk(OUT):
+        if os.path.basename(dp).upper() == "NG":
+            n_imgs += len([f for f in fs if f.lower().endswith(".png")])
     print(f"[3] NG 场景: total={snap2.total} ng={snap2.ng} 存图={n_imgs} 张")
     if snap2.ng < 5 or n_imgs < 5:
         failures.append(f"NG 存图异常: ng={snap2.ng}, imgs={n_imgs}")

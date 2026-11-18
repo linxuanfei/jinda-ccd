@@ -24,7 +24,7 @@ import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
 from visionapp.core import Frame  # noqa: E402
-from visionapp.ops import Item, _apply_judge, find_blobs  # noqa: E402
+from visionapp.ops import Item, _apply_judge, _clamp_threshold, find_blobs  # noqa: E402
 from visionapp.recipe import Pipeline, Recipe  # noqa: E402
 from visionapp.sources import open_source  # noqa: E402
 
@@ -67,20 +67,12 @@ def test_judge() -> None:
 
 
 def test_threshold_clamp() -> None:
-    print("[2] 阈值 0/255 硬拦截（本树不静默钳到 1~254 后继续测）")
-    from visionapp.ops import Item
-    from visionapp.tuning import threshold_block_reason
-    frame = make_frame()
-    check("0 有拦截原因", "拦截" in threshold_block_reason(0, None))
-    check("255 有拦截原因", "拦截" in threshold_block_reason(111, 255))
-    blocked = find_blobs(frame, Item(id="z", type="find_blobs", params={
-        "threshold": 10, "threshold_high": 255, "morph_kernel": 0, "min_area": 1,
-    }), {})
-    check("255 不定位", blocked.blocked and blocked.blobs == [] and blocked.ok is False, blocked.message)
-    blocked0 = find_blobs(frame, Item(id="z0", type="find_blobs", params={
-        "threshold": 0, "morph_kernel": 0, "min_area": 1,
-    }), {})
-    check("0 不定位", blocked0.blocked and blocked0.blobs == [], blocked0.message)
+    print("[2] 阈值限幅 1~254（现场：0/255 会抓取错误）")
+    check("0 → 1", _clamp_threshold(0) == 1)
+    check("255 → 254", _clamp_threshold(255) == 254)
+    check("111 保持", _clamp_threshold(111) == 111)
+    check("-5 → 1", _clamp_threshold(-5) == 1)
+    check("非法值 → 默认 128", _clamp_threshold("abc") == 128)
 
 
 def make_frame() -> Frame:
@@ -98,10 +90,10 @@ def test_find_blobs() -> None:
     frame = make_frame()
 
     it = Item(id="b1", type="find_blobs",
-              params={"threshold_low": 111, "threshold_high": 254,
+              params={"threshold_low": 111, "threshold_high": 255,
                       "morph_kernel": 0, "min_area": 25, "max_area": 999999})
     n = len(find_blobs(frame, it, {}).blobs)
-    check("区间阈值 111~254 找到 4 个目标", n == 4, f"实际 {n}")
+    check("区间阈值 111~255 找到 4 个目标", n == 4, f"实际 {n}")
 
     it_single = Item(id="b2", type="find_blobs",
                      params={"threshold": 128, "morph_kernel": 0, "min_area": 25})
@@ -109,31 +101,31 @@ def test_find_blobs() -> None:
     check("单阈值（旧配方）仍可用", n2 == 4, f"实际 {n2}")
 
     it_w = Item(id="b3", type="find_blobs",
-                params={"threshold_low": 111, "threshold_high": 254, "morph_kernel": 0,
+                params={"threshold_low": 111, "threshold_high": 255, "morph_kernel": 0,
                         "min_area": 25, "min_width": 20, "min_height": 20})
     n3 = len(find_blobs(frame, it_w, {}).blobs)
     check("最小宽度/高度 20 → 只剩 2 个大块", n3 == 2, f"实际 {n3}")
 
     it_c0 = Item(id="b4a", type="find_blobs",
-                 params={"threshold_low": 111, "threshold_high": 254, "morph_kernel": 0,
+                 params={"threshold_low": 111, "threshold_high": 255, "morph_kernel": 0,
                          "min_area": 25, "min_circularity": 0.01})
     n4 = len(find_blobs(frame, it_c0, {}).blobs)
     check("圆度阈值 0.01 不过滤 → 4 个（细线圆度≈0.04，0.05 就会滤掉）", n4 == 4, f"实际 {n4}")
 
     it_c9 = Item(id="b4b", type="find_blobs",
-                 params={"threshold_low": 111, "threshold_high": 254, "morph_kernel": 0,
+                 params={"threshold_low": 111, "threshold_high": 255, "morph_kernel": 0,
                          "min_area": 25, "min_circularity": 0.99})
     n5 = len(find_blobs(frame, it_c9, {}).blobs)
     check("圆度阈值 0.99 全部滤掉 → 0 个", n5 == 0, f"实际 {n5}")
 
     it_area = Item(id="b5", type="find_blobs",
-                   params={"threshold_low": 111, "threshold_high": 254, "morph_kernel": 0,
+                   params={"threshold_low": 111, "threshold_high": 255, "morph_kernel": 0,
                            "min_area": 25, "max_area": 50})
     n6 = len(find_blobs(frame, it_area, {}).blobs)
     check("最大面积 50 滤掉大块 → 0 个", n6 == 0, f"实际 {n6}")
 
     it_judge = Item(id="b6", type="find_blobs",
-                    params={"threshold_low": 111, "threshold_high": 254, "morph_kernel": 0,
+                    params={"threshold_low": 111, "threshold_high": 255, "morph_kernel": 0,
                             "min_area": 25},
                     judge={"kind": "range", "min": 4, "max": 4})
     check("数量判定 4~4 → OK", find_blobs(frame, it_judge, {}).ok is True)

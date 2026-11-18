@@ -16,13 +16,18 @@ import os
 
 PROJECT = os.path.dirname(SPECPATH)     # noqa: F821  (SPECPATH 由 PyInstaller 注入)
 
-# 不把厂商 SDK 二进制打进包。Win7 现场同样装官方 MVSDK。
 DATAS = [
     (os.path.join(PROJECT, 'config'), 'config'),
     (os.path.join(PROJECT, 'recipes'), 'recipes'),
     (os.path.join(PROJECT, 'samples'), 'samples'),
     (os.path.join(PROJECT, 'docs'), 'docs'),
 ]
+import struct as _struct
+for _sdk in ('sdk/mindvision', 'sdk'):
+    _p = os.path.join(PROJECT, *_sdk.split('/'))
+    if os.path.isdir(_p):
+        DATAS.append((_p, 'sdk' if _sdk == 'sdk' else 'sdk/mindvision'))
+        break
 
 a = Analysis(
     [os.path.join(PROJECT, 'tools', 'visionapp_gui.py')],
@@ -32,12 +37,15 @@ a = Analysis(
     hiddenimports=[
         'serial',
         # 下面这些是「函数内延迟 import」或动态导入，PyInstaller 静态分析看不到，必须显式声明
-        'visionapp.mindvision',
+        'visionapp.sources_mindvision',
         'visionapp.tracking',
         'visionapp.align',
         'visionapp.imgio',
         'visionapp.paths',
         'visionapp.qtcompat',
+        'visionapp.ui.ng_gallery',
+        'visionapp.ui.general_settings',
+        'visionapp.diskguard',
     ],
     hookspath=[],
     hooksconfig={},

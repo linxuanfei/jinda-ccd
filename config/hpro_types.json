@@ -1,29 +1,42 @@
 {
-  "version": 1,
-  "_comment": "HPro 类型映射表。改这里不用改代码；每个检测类型配置它对应的算子/参数/是否取判定规则。",
+  "version": 2,
+  "_comment": "HPro 类型映射表。改这里不用改代码；每个检测类型配置它对应的算子/参数/是否取判定规则。现场 2pin.HPro 已逐段核对（2026-11-17）。",
 
   "judge": {
-    "_comment": "判定规则行的字段位置（按空白切分后的下标）：<参照项> <模式> <x> <y> <值1> <值2> <公差> ...",
+    "_comment": "判定规则行：<参照项> <模式> <x> <y> <值1> <值2> <公差> ……（按空白切分后的下标）",
     "mode_index": 1,
     "value_index": 4,
     "value2_index": 5,
     "tol_index": 6,
     "modes": {
-      "_comment": "模式号 -> 判定区间。0/1/2 是标称 ± 公差（low - tol ~ low + tol），禁止下限 ~ 下限+公差。",
+      "_note": "模式 0/1/2 在原程序里是「标称值 ± 容差」（值1=标称，值3=容差），**不是**「下限 ~ 下限+公差」；模式 5 用第二个值。",
       "0": { "kind": "range", "expr": "low - tol ~ low + tol" },
       "1": { "kind": "range", "expr": "low - tol ~ low + tol" },
       "2": { "kind": "range", "expr": "low - tol ~ low + tol" },
-      "5": {
-        "kind": "range",
-        "expr": "value2",
-        "_comment": "区间取前两个数。第三个数含义未证实，不参与上下限。"
-      }
+      "5": { "kind": "range", "expr": "value2" }
     }
   },
 
   "roi": {
     "_comment": "线形 ROI（高度或宽度为 0）会加厚成可计算的框，厚度按像素。",
     "line_roi_thickness": 24
+  },
+
+  "blob_params": {
+    "_comment": "斑块参数在参数行第 7 段（下标 6），现场核对：最小宽2 最小高2 最大面积999999 最小面积25 下限0 上限255。",
+    "token_index": 6,
+    "min_width_index": 0,
+    "min_height_index": 1,
+    "max_area_index": 4,
+    "min_area_index": 5,
+    "threshold_low_index": 10,
+    "threshold_high_index": 11
+  },
+
+  "score_line": {
+    "_comment": "检测项末尾的评分行，形如「0 200 0 0.85」：第 2 个是二值化阈值，最后一个是模板相关系数。",
+    "threshold_index": 1,
+    "correlation_index": 3
   },
 
   "types": {
@@ -44,13 +57,13 @@
     "2": {
       "meaning": "正位度/偏移（X 向，参照基线）",
       "op": "distance_pp",
-      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0, "axis": "x" },
+      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0 },
       "judge_from_rule": true
     },
     "3": {
       "meaning": "正位度/偏移（Y 向，参照基线）",
       "op": "distance_pp",
-      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0, "axis": "y" },
+      "params": { "src": "$baseline", "blob_a": 0, "blob_b": 1, "mm_per_px": 0.0 },
       "judge_from_rule": true
     },
     "11": {
@@ -67,15 +80,13 @@
       "judge_from_rule": false
     },
     "12": {
-      "_comment": "有的配方会写判定行。judge_from_rule 为真时导入该行；没写则判定留空。",
       "meaning": "图像比对/定位（模板匹配）",
       "op": "match_template",
       "params": { "template": "", "min_score": 0.8 },
-      "judge_from_rule": true
+      "judge_from_rule": false
     },
     "13": {
-      "_comment": "中文含义仍是猜测（曾标为面积/尺寸）。正式名称只用类型号，不把猜测写进检测项名。",
-      "meaning": "类型13",
+      "meaning": "面积/尺寸（猜测）",
       "op": "find_blobs",
       "params": {
         "threshold_mode": "dark",
@@ -88,8 +99,7 @@
       "judge_from_rule": true
     },
     "14": {
-      "_comment": "中文含义仍是猜测（曾标为面积/尺寸）。正式名称只用类型号，不把猜测写进检测项名。",
-      "meaning": "类型14",
+      "meaning": "面积/尺寸（猜测）",
       "op": "find_blobs",
       "params": {
         "threshold_mode": "dark",

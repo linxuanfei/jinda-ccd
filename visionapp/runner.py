@@ -19,7 +19,7 @@ from .core import Frame
 from .alarm import Alarm
 from .outputs import OutputManager
 from .recorder import Recorder
-from .recipe import Pipeline, PipelineResult, stamp_totals
+from .recipe import Pipeline, PipelineResult
 from .sources import FrameSource
 
 MODE_SINGLE = "single"
@@ -38,15 +38,28 @@ class RunSnapshot:
     start_ts: float = 0.0
     fps: float = 0.0
     last_elapsed_ms: float = 0.0
+    mean_brightness: float = 0.0       # 最近一帧平均亮度（现场调光用）
+    frame_seq: int = 0                 # 已取到的帧序号（界面据此决定要不要重绘）
+    waiting_frames: int = 0            # 连续没取到图的次数（硬件触发没信号时>0）
     last_result: dict[str, Any] | None = None
     last_annotated: np.ndarray | None = None
+    last_frame: np.ndarray | None = None       # 最近一帧原图（截取定位模板用）
+    recheck: bool = False          # 当前是否复检模式
+    rc_total: int = 0              # 复检件数
+    rc_ok: int = 0
+    rc_ng: int = 0
     last_error: str = ""
 
     @property
     def yield_rate(self) -> float:
-        return (self.ok / self.total) if self.total else 0.0
+        """良率**只按首检**算：复检件不进分子分母（否则复检会把良率变好看）。"""
+        base = self.ok + self.ng
+        return (self.ok / base) if base else 0.0
 
-
+    @property
+    def recheck_rate(self) -> float:
+        """复检合格率：复检件里判 OK 的比例（这才是"返修救回来多少"）。"""
+        return (self.rc_ok / self.rc_total) if self.rc_total else 0.0
 class Runner:
     """取图 → 检测 → 计数 → 记录。"""
 
@@ -73,10 +86,19 @@ class Runner:
         self._total = 0
         self._ok = 0
         self._ng = 0
+        self._recheck = False
+        self._rc_total = 0
+        self._rc_ok = 0
+        self._rc_ng = 0
         self._start_ts = 0.0
         self._last_elapsed = 0.0
+        self._last_mean = 0.0
+        self._seq = 0
+        self._waiting = 0
+        self._auto_detect = True          # False = 只预览不检测（单帧仍会测一次）
         self._last_result: dict[str, Any] | None = None
         self._last_annotated: np.ndarray | None = None
+        self._last_raw: np.ndarray | None = None
         self._last_error = ""
         self._frame_times: list[float] = []
 
@@ -97,6 +119,26 @@ class Runner:
         with self._lock:
             self._alarm = alarm
 
+    def set_auto_detect(self, on: bool) -> None:
+        """自动检测：关掉后连续取图只做预览，不跑检测、不计数（调机看画面用）。"""
+        with self._lock:
+            self._auto_detect = bool(on)
+
+    @property
+    def auto_detect(self) -> bool:
+        with self._lock:
+            return self._auto_detect
+
+    def set_recheck(self, on: bool) -> None:
+        """切换首检 / 复检模式：复检帧只计复检品，不进良率。"""
+        with self._lock:
+            self._recheck = bool(on)
+
+    @property
+    def recheck(self) -> bool:
+        with self._lock:
+            return self._recheck
+
     # ------------------------------------------------------------------ 状态
     @property
     def running(self) -> bool:
@@ -114,14 +156,23 @@ class Runner:
                 start_ts=self._start_ts,
                 fps=self._calc_fps_locked(),
                 last_elapsed_ms=self._last_elapsed,
+                mean_brightness=self._last_mean,
+                frame_seq=self._seq,
+                waiting_frames=self._waiting,
                 last_result=self._last_result,
                 last_annotated=self._last_annotated,
+                last_frame=self._last_raw,
+                recheck=self._recheck,
+                rc_total=self._rc_total,
+                rc_ok=self._rc_ok,
+                rc_ng=self._rc_ng,
                 last_error=self._last_error,
             )
 
     def reset_stats(self) -> None:
         with self._lock:
             self._total = self._ok = self._ng = 0
+            self._rc_total = self._rc_ok = self._rc_ng = 0
             self._start_ts = 0.0
             self._frame_times.clear()
 
@@ -155,9 +206,9 @@ class Runner:
         with self._lock:
             self._running = False
 
-    def step(self) -> bool:
-        """同步处理一帧（界面"单帧"按钮、测试用）。"""
-        return self._process_once()
+    def step(self, force_detect: bool = True, count: bool = True) -> bool:
+        """同步处理一帧（界面【检测一次】按钮、测试用）。count=False 只出结果不计数。"""
+        return self._process_once(force_detect=force_detect, count=count)
 
     # ------------------------------------------------------------------ 内部
     def _loop(self) -> None:
@@ -172,7 +223,7 @@ class Runner:
         with self._lock:
             self._running = False
 
-    def _process_once(self) -> bool:
+    def _process_once(self, force_detect: bool = False, count: bool = True) -> bool:
         with self._lock:
             source = self._source
             recorder = self._recorder
@@ -186,8 +237,22 @@ class Runner:
 
         frame = source.read(timeout_ms=1000)
         if frame is None:
+            with self._lock:
+                self._waiting = min(self._waiting + 1, 100000)
             return False
 
+        with self._lock:
+            self._waiting = 0
+            auto = self._auto_detect
+        if not auto and not force_detect:
+            # 只预览：把这一帧丢给界面，不跑检测、不计数
+            with self._lock:
+                self._last_annotated = frame.bgr
+                self._seq += 1
+            self._last_raw = frame.bgr
+            self._last_mean = float(frame.bgr.mean()) if frame.bgr is not None else 0.0
+            return True
+        recheck = self._recheck
         t0 = time.perf_counter()
         try:
             result, annotated = pipeline.run(frame, annotate=True)
@@ -201,7 +266,7 @@ class Runner:
         save_error = ""
         if recorder is not None:
             try:
-                recorder.record(result, frame, annotated, elapsed_ms)
+                recorder.record(result, frame, annotated, elapsed_ms, recheck=recheck)
             except Exception as exc:                   # noqa: BLE001
                 save_error = f"记录失败: {exc}"
 
@@ -222,14 +287,22 @@ class Runner:
                 pass
 
         with self._lock:
-            self._total += 1
-            if result.ok:
-                self._ok += 1
-            else:
-                self._ng += 1
+            if count:
+                self._total += 1
+                if recheck:
+                    self._rc_total += 1
+                    if result.ok:
+                        self._rc_ok += 1
+                    else:
+                        self._rc_ng += 1
+                elif result.ok:
+                    self._ok += 1
+                else:
+                    self._ng += 1
+            self._last_mean = float(frame.bgr.mean()) if frame.bgr is not None else 0.0
             self._last_elapsed = elapsed_ms
             self._last_result = result.as_dict()
-            self._last_annotated = stamp_totals(annotated, self._ok, self._ng)
+            self._last_annotated = annotated
             self._frame_times.append(time.time())
             if len(self._frame_times) > 300:
                 self._frame_times = self._frame_times[-300:]

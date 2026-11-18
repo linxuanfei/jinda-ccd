@@ -96,7 +96,7 @@ def test_config() -> None:
 def build_recipe(with_track: bool, apply_to: list[str] | None = None) -> Recipe:
     pins = Item(id="pins", type="find_blobs",
                 roi=Rect(50, 80, 170, 130),
-                params={"threshold_low": 100, "threshold_high": 254, "morph_kernel": 0,
+                params={"threshold_low": 100, "threshold_high": 255, "morph_kernel": 0,
                         "min_area": 100, "min_width": 10, "min_height": 10},
                 judge={"kind": "range", "min": 2, "max": 2})
     pitch = Item(id="pitch", type="distance_pp",

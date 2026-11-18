@@ -27,7 +27,7 @@
       "params": {
         "threshold_mode": "dark",
         "threshold_low": 111,
-        "threshold_high": 254,
+        "threshold_high": 255,
         "blur": 5,
         "morph_kernel": 5,
         "min_area": 25,

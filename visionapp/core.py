@@ -47,10 +47,10 @@ class Frame:
 class Rect:
     """检测区域。
 
+    支持两种形状（与现场 In-Vision 对齐）：
     - ``rect``：矩形，用 x/y/w/h；
-    - ``line``：任意角度的线形 ROI，端点在 ``line=(x1,y1,x2,y2)``，
-      x/y/w/h 是外接矩形，按矩形裁图的算子不用改。
-    水平基准线（只向右、锁高度）仍由界面的 hline 工具生成普通矩形。
+    - ``line``：**线形 ROI（任意角度）**，端点存 ``line=(x1,y1,x2,y2)``，
+      同时维护 x/y/w/h 作为**外接矩形**，这样所有按矩形裁图的算子无需改动。
     """
     x: int
     y: int
@@ -62,8 +62,10 @@ class Rect:
     def is_line(self) -> bool:
         return self.shape == "line" and self.line is not None
 
+    # ------------------------------------------------------------------ 构造
     @classmethod
     def from_line(cls, x1: float, y1: float, x2: float, y2: float, pad: int = 1) -> "Rect":
+        """由两个端点构造线形 ROI（外接矩形自动算，pad 让线有 1~2px 厚度可操作）。"""
         xi1, yi1, xi2, yi2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
         x = min(xi1, xi2)
         y = min(yi1, yi2)
@@ -78,20 +80,24 @@ class Rect:
         h = max(1, min(int(self.h), height - y))
         line = self.line
         if line is not None:
-            x1 = max(0, min(int(line[0]), max(0, width - 1)))
-            y1 = max(0, min(int(line[1]), max(0, height - 1)))
-            x2 = max(0, min(int(line[2]), max(0, width - 1)))
-            y2 = max(0, min(int(line[3]), max(0, height - 1)))
+            x1 = max(0, min(int(line[0]), width - 1))
+            y1 = max(0, min(int(line[1]), height - 1))
+            x2 = max(0, min(int(line[2]), width - 1))
+            y2 = max(0, min(int(line[3]), height - 1))
             line = (x1, y1, x2, y2)
         return Rect(x, y, w, h, shape=self.shape, line=line)
 
     def bbox(self) -> "Rect":
-        return Rect(self.x, self.y, self.w, self.h)
+        """外接矩形（矩形自身 / 线形的包围盒）。"""
+        if self.is_line():
+            return Rect(self.x, self.y, self.w, self.h)
+        return self
 
     def as_tuple(self) -> tuple[int, int, int, int]:
         return (self.x, self.y, self.w, self.h)
 
     def as_dict(self) -> list[int] | dict:
+        """配方 JSON 用：矩形存 4 元组，线形存 dict（带 shape 与端点）。"""
         if self.is_line() and self.line is not None:
             return {"shape": "line", "line": list(self.line)}
         return [self.x, self.y, self.w, self.h]
@@ -111,10 +117,9 @@ class Rect:
         if isinstance(value, (list, tuple)):
             if len(value) == 4:
                 return cls(*(int(v) for v in value))
-            if len(value) == 8:
+            if len(value) == 8:                      # 兼容 [x1,y1,x2,y2,...] 的平铺写法
                 return cls.from_line(*value[:4])
         raise ValueError(f"无法解析 ROI: {value!r}")
-
 
 @dataclass
 class Point:

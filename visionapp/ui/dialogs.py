@@ -6,31 +6,32 @@ import os
 
 from ..qtcompat import Qt
 from ..qtcompat import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
-    QSpinBox, QVBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
 )
 
-from ..camera_cfg import BRAND_MINDVISION, MODEL_MV_GE500M_TPO
-from ..mindvision import SERIAL
 from ..recorder import RecorderConfig
-from ..sources import source_from_config
+from ..sources import open_source
 from . import theme
+
+from ..sources_mindvision import DEFAULT_MODEL as _MV_DEFAULT_MODEL, DEFAULT_SERIAL as _MV_DEFAULT_SERIAL
 
 SOURCE_KINDS = [
     ("synthetic", "模拟相机（合成画面，开发用）"),
     ("folder", "图片回放（目录里的图片）"),
     ("uvc", "USB 摄像头 / UVC（MaixCam UVC 模式）"),
-    ("rtsp", "网络相机 RTSP（MaixCam 推流）"),
-    ("mindvision", "迈德威视 MV-GE500M-TPO（GigE，官方 MVSDK）"),
+    ("rtsp", "网络相机 RTSP（MaixCam 推流 / 工业网口相机）"),
+    ("mindvision", "工业相机 MindVision 迈德威视（MVSDK）"),
 ]
 
 
 class SourceDialog(QDialog):
     """选择帧源并连接。返回 config: {kind, path, index, url}。"""
 
-    def __init__(self, config: dict | None = None, parent=None):
+    def __init__(self, config: dict | None = None, parent=None, live_tune=None):
         super().__init__(parent)
+        self.live_tune = live_tune          # 拖动曝光/增益时立即下发给相机
         self.setWindowTitle("选择相机 / 帧源")
         self.resize(560, 300)
         cfg = dict(config or {})
@@ -65,17 +66,44 @@ class SourceDialog(QDialog):
         self.ed_url = QLineEdit(cfg.get("url", "rtsp://10.239.136.1:8554/live"))
         form.addRow("RTSP 地址", self.ed_url)
 
-        self.ed_model = QLineEdit(cfg.get("model") or MODEL_MV_GE500M_TPO)
-        self.ed_serial = QLineEdit(cfg.get("serial") or SERIAL)
-        self.ed_sdk = QLineEdit(cfg.get("sdk_path") or "")
-        form.addRow("迈德威视型号", self.ed_model)
-        form.addRow("序列号", self.ed_serial)
-        form.addRow("SDK 路径", self.ed_sdk)
 
-        lbl_hint = QLabel(
-            "迈德威视走官方 MVSDK。库不在或打不开会报错，不会用合成图或 UVC 代替。"
-            "分辨率和曝光范围待手册确认。"
-        )
+        # mindvision（迈德威视）专用参数
+        self.ed_mv_serial = QLineEdit(cfg.get("serial", _MV_DEFAULT_SERIAL))
+        self.ed_mv_model = QLineEdit(cfg.get("model", _MV_DEFAULT_MODEL))
+        self.lst_mv = QListWidget()
+        self.lst_mv.setMaximumHeight(96)
+        self.lst_mv.itemDoubleClicked.connect(self._pick_camera)
+        btn_scan = QPushButton("扫描相机")
+        btn_scan.clicked.connect(self._scan_cameras)
+        row_mv = QHBoxLayout()
+        row_mv.addWidget(self.ed_mv_serial, 1)
+        row_mv.addWidget(btn_scan)
+        form.addRow("相机序列号", row_mv)
+        form.addRow("相机型号", self.ed_mv_model)
+        form.addRow("扫描结果", self.lst_mv)
+        self.sp_mv_exposure = QDoubleSpinBox()
+        self.sp_mv_exposure.setRange(0.0, 1000.0)
+        self.sp_mv_exposure.setDecimals(3)
+        self.sp_mv_exposure.setSuffix(" ms")
+        self.sp_mv_exposure.setValue(float(cfg.get("exposure_ms", 100.0) or 100.0))
+        form.addRow("曝光", self.sp_mv_exposure)
+        self.sp_mv_gain = QDoubleSpinBox()
+        self.sp_mv_gain.setRange(0.0, 100.0)
+        self.sp_mv_gain.setDecimals(1)
+        self.sp_mv_gain.setValue(float(cfg.get("gain", 0) or 0))
+        form.addRow("模拟增益", self.sp_mv_gain)
+        # 改一下就下发，不用点"连接"，画面立刻变亮/变暗
+        self.sp_mv_exposure.valueChanged.connect(self._push_live)
+        self.sp_mv_gain.valueChanged.connect(self._push_live)
+        self.cb_mv_trigger = QComboBox()
+        for _label, _value in (("硬件触发（产线默认）", "hardware"), ("连续采集（调参用）", "continuous"),
+                               ("软触发", "software")):
+            self.cb_mv_trigger.addItem(_label, _value)
+        # 默认连续采集：硬件触发下没有触发信号就不出图，调机时容易误以为"相机坏了"
+        _trig = cfg.get("trigger") or "continuous"
+        self.cb_mv_trigger.setCurrentIndex(max(0, self.cb_mv_trigger.findData(_trig)))
+        form.addRow("触发模式", self.cb_mv_trigger)
+        lbl_hint = QLabel("提示：相机需先在设备上开流（MaixCam 用 RTSP 推流应用）；UVC 模式直接当摄像头用。")
         theme.set_class(lbl_hint, "hint")
         form.addRow(lbl_hint)
         v.addLayout(form)
@@ -90,15 +118,58 @@ class SourceDialog(QDialog):
         self.cb_kind.currentIndexChanged.connect(self._update_enabled)
         self._update_enabled()
 
+    def _push_live(self) -> None:
+        if self.live_tune is None:
+            return
+        try:
+            self.live_tune(exposure_ms=float(self.sp_mv_exposure.value()),
+                           gain=float(self.sp_mv_gain.value()),
+                           trigger=str(self.cb_mv_trigger.currentData() or "continuous"))
+        except Exception:                                   # noqa: BLE001
+            pass
+
     def _update_enabled(self) -> None:
         kind = self.cb_kind.currentData()
         self.ed_path.setEnabled(kind == "folder")
-        self.sp_index.setEnabled(kind == "uvc")
+        is_mv = kind == "mindvision"
+        self.sp_index.setEnabled(kind in ("uvc", "mindvision"))
         self.ed_url.setEnabled(kind == "rtsp")
-        gige = kind == "mindvision"
-        self.ed_model.setEnabled(gige)
-        self.ed_serial.setEnabled(gige)
-        self.ed_sdk.setEnabled(gige)
+        for _w in (self.ed_mv_serial, self.ed_mv_model, self.sp_mv_exposure,
+                   self.sp_mv_gain, self.lst_mv):
+            _w.setEnabled(is_mv)
+        # 触发模式单独放开：调机时必须能切换"连续采集"（硬件触发没信号就不出图）
+        self.cb_mv_trigger.setEnabled(is_mv)
+
+    def _scan_cameras(self) -> None:
+        """列出现场枚举到的迈德威视相机，双击一条就填进表单。"""
+        self.lst_mv.clear()
+        try:
+            from ..sources_mindvision import MindVisionSource
+
+            devices = MindVisionSource.list_devices(self._sdk_path())
+        except Exception as exc:                                  # noqa: BLE001
+            self.lst_mv.addItem(f"扫描失败：{exc}")
+            return
+        if not devices:
+            self.lst_mv.addItem("没枚举到相机（检查供电/网线/网段/是否被原厂软件占用）")
+            return
+        for d in devices:
+            self.lst_mv.addItem(
+                f"{d.get('model') or '?'}   SN={d.get('serial') or '?'}   {d.get('port') or ''}")
+        if len(devices) == 1:
+            self.ed_mv_serial.setText(str(devices[0].get("serial") or ""))
+            self.ed_mv_model.setText(str(devices[0].get("model") or ""))
+
+    def _pick_camera(self, item) -> None:
+        line = item.text()
+        parts = [p.strip() for p in line.split("SN=")]
+        if len(parts) == 2:
+            self.ed_mv_model.setText(parts[0].strip())
+            sn = parts[1].split()[0] if parts[1].split() else ""
+            self.ed_mv_serial.setText(sn)
+
+    def _sdk_path(self) -> str:
+        return ""
 
     def _pick_dir(self) -> None:
         start = self.ed_path.text() or os.path.expanduser("~")
@@ -109,15 +180,12 @@ class SourceDialog(QDialog):
     def _accept(self) -> None:
         kind = self.cb_kind.currentData()
         cfg = {"kind": kind, "path": self.ed_path.text().strip(),
-               "index": int(self.sp_index.value()), "url": self.ed_url.text().strip()}
-        if kind == "mindvision":
-            cfg.update({
-                "brand": BRAND_MINDVISION,
-                "model": self.ed_model.text().strip() or MODEL_MV_GE500M_TPO,
-                "serial": self.ed_serial.text().strip() or SERIAL,
-                "sdk_path": self.ed_sdk.text().strip(),
-                "trigger": "hardware",
-            })
+               "index": int(self.sp_index.value()), "url": self.ed_url.text().strip(),
+               "serial": self.ed_mv_serial.text().strip(),
+               "model": self.ed_mv_model.text().strip(),
+               "exposure_ms": float(self.sp_mv_exposure.value()),
+               "gain": float(self.sp_mv_gain.value()),
+               "trigger": self.cb_mv_trigger.currentData()}
         try:
             src = build_source(cfg)
             src.open()
@@ -134,7 +202,25 @@ class SourceDialog(QDialog):
 
 def build_source(cfg: dict):
     """按配置创建帧源（不打开）。"""
-    return source_from_config(cfg)
+    kind = cfg.get("kind", "synthetic")
+    if kind == "synthetic":
+        return open_source("synthetic", fps=0)
+    if kind == "folder":
+        if not cfg.get("path"):
+            raise ValueError("图片目录不能为空")
+        return open_source("folder", path=cfg["path"], loop=True, fps=0)
+    if kind == "uvc":
+        return open_source("uvc", index=int(cfg.get("index", 0)))
+    if kind == "rtsp":
+        if not cfg.get("url"):
+            raise ValueError("RTSP 地址不能为空")
+        return open_source("rtsp", url=cfg["url"])
+    if kind == "mindvision":
+        return open_source("mindvision", index=int(cfg.get("index", 0) or 0),
+                           serial=cfg.get("serial", ""), model=cfg.get("model", ""),
+                           exposure_ms=cfg.get("exposure_ms"), gain=cfg.get("gain"),
+                           trigger=cfg.get("trigger", "hardware"), sdk_path=cfg.get("sdk_path", ""))
+    raise ValueError(f"未知帧源: {kind}")
 
 
 class RecordSettingsDialog(QDialog):
@@ -164,6 +250,30 @@ class RecordSettingsDialog(QDialog):
         self.ck_ng.setChecked(cfg.save_ng_images)
         form.addRow("", self.ck_ng)
 
+        # 自动清理：现场硬盘小，NG 图会越攒越多
+        self.sp_keep = QSpinBox()
+        self.sp_keep.setRange(0, 3650)
+        self.sp_keep.setValue(int(getattr(cfg, "keep_days", 30) or 0))
+        self.sp_keep.setSuffix(" 天")
+        self.sp_keep.setToolTip("NG/OK 图只保留最近这么多天，超期目录在每次开始记录时自动删除；0 = 永不清理")
+        form.addRow("NG 图保留", self.sp_keep)
+
+        self.sp_free = QSpinBox()
+        self.sp_free.setRange(0, 100000)
+        self.sp_free.setSuffix(" GB")
+        self.sp_free.setValue(int(round(float(parent.settings.get("disk_min_free_gb", 5.0) or 5.0)))
+                              if hasattr(parent, "settings") else 5)
+        self.sp_free.setToolTip("硬盘剩余低于这个值就在状态栏提醒（并弹一次窗）")
+        form.addRow("剩余空间提醒", self.sp_free)
+
+        self.sp_maxsize = QSpinBox()
+        self.sp_maxsize.setRange(0, 100000)
+        self.sp_maxsize.setSuffix(" GB")
+        self.sp_maxsize.setValue(int(round(float(parent.settings.get("results_max_gb", 0.0) or 0.0)))
+                                 if hasattr(parent, "settings") else 0)
+        self.sp_maxsize.setToolTip("结果目录总占用上限，超了自动删最旧的日期目录；0 = 不限制")
+        form.addRow("结果目录上限", self.sp_maxsize)
+
         self.ck_ok = QCheckBox("保存 OK 图像（占空间大）")
         self.ck_ok.setChecked(cfg.save_ok_images)
         form.addRow("", self.ck_ok)
@@ -185,6 +295,7 @@ class RecordSettingsDialog(QDialog):
             csv_enabled=self.ck_csv.isChecked(),
             save_ng_images=self.ck_ng.isChecked(),
             save_ok_images=self.ck_ok.isChecked(),
+            keep_days=int(self.sp_keep.value()),
         )
 
 
@@ -197,6 +308,8 @@ class OutputAlarmDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("输出与报警设置")
         self.resize(640, 520)
+        from ..qtcompat import QCheckBox, QGroupBox, QPlainTextEdit  # noqa: PLC0415
+
         out = dict(output_cfg or {})
         alarm = dict(alarm_cfg or {})
         v = theme.tune_layout(QVBoxLayout(self))
@@ -352,7 +465,11 @@ class OutputAlarmDialog(QDialog):
 
 
 class CalibrationDialog(QDialog):
-    """直接填 X/Y，或用真实值对实测值反算（设定 1 / 实测 1.433）。"""
+    """相机标定：X/Y 分开、可直接填数值，或用"真实值 vs 实测值"反算。
+
+    现场做法（原话）：「视频中设定值为 1，现检测结果为 1.433，点相机标定改标定值」
+    —— 所以这里必须支持"输入真实值 + 当前实测值 → 反算比例"。
+    """
 
     def __init__(self, calibration, parent=None):
         super().__init__(parent)
@@ -360,14 +477,17 @@ class CalibrationDialog(QDialog):
 
         self.setWindowTitle("相机标定（X 水平 / Y 垂直）")
         self.resize(520, 430)
+        self._Calibration = Calibration
         self.result_cal = None
         self.cal = Calibration.from_dict(calibration.to_dict() if calibration else None)
 
         v = theme.tune_layout(QVBoxLayout(self))
+
         lbl_now = QLabel("当前：" + self.cal.describe())
         theme.set_class(lbl_now, "hint")
         v.addWidget(lbl_now)
 
+        # ---------------- 直接填数值
         box1 = QGroupBox("① 直接填比例（mm / 像素）")
         f1 = QFormLayout(box1)
         self.sp_x = QDoubleSpinBox()
@@ -385,7 +505,8 @@ class CalibrationDialog(QDialog):
         f1.addRow(btn_xy)
         v.addWidget(box1)
 
-        box2 = QGroupBox("② 用实测值反算")
+        # ---------------- 反算
+        box2 = QGroupBox("② 用实测值反算（推荐：现场调机就用这个）")
         f2 = QFormLayout(box2)
         self.cb_axis = QComboBox()
         self.cb_axis.addItem("X 水平", "x")
@@ -418,24 +539,28 @@ class CalibrationDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
+    # ------------------------------------------------------------------ 动作
     def _apply_xy(self) -> None:
         try:
             self.cal.set_xy(self.sp_x.value(), self.sp_y.value(), method="manual")
         except ValueError as exc:
             QMessageBox.warning(self, "标定", str(exc))
             return
-        self.lbl_preview.setText(f"已设置 → {self.cal.describe()}")
+        self._preview("已设置")
 
     def _apply_reverse(self) -> None:
+        axis = self.cb_axis.currentData()
         try:
-            k = self.cal.set_by_known_value(
-                self.sp_known.value(), self.sp_measured.value(), axis=self.cb_axis.currentData())
+            k = self.cal.set_by_known_value(self.sp_known.value(), self.sp_measured.value(), axis=axis)
         except ValueError as exc:
             QMessageBox.warning(self, "标定", str(exc))
             return
         self.sp_x.setValue(self.cal.sx)
         self.sp_y.setValue(self.cal.sy)
-        self.lbl_preview.setText(f"比例 × {k:.4f} → {self.cal.describe()}")
+        self._preview(f"比例 × {k:.4f}")
+
+    def _preview(self, head: str) -> None:
+        self.lbl_preview.setText(f"{head} → {self.cal.describe()}")
 
     def _accept(self) -> None:
         if not self.cal.valid:
@@ -443,4 +568,3 @@ class CalibrationDialog(QDialog):
             return
         self.result_cal = self.cal
         self.accept()
-

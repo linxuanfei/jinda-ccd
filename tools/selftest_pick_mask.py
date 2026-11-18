@@ -48,7 +48,7 @@ def make_frame() -> Frame:
 
 
 def params(**kw) -> dict:
-    base = {"threshold_low": 100, "threshold_high": 254, "morph_kernel": 0,
+    base = {"threshold_low": 100, "threshold_high": 255, "morph_kernel": 0,
             "min_area": 100, "max_width": 0}
     base.update(kw)
     return base

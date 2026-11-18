@@ -48,7 +48,7 @@ def main() -> int:
 
     print("[1] 画框 → 写入检测项")
     win.add_item()
-    item = win.recipe.items[0]
+    item = win._current_item()   # 现在画框挂到"当前空白项"
     win.view.roiCreated.emit(Rect(100, 120, 200, 160))
     check("ROI 写入配方", item.roi is not None and item.roi.as_tuple() == (100, 120, 200, 160),
           f"{item.roi.as_tuple() if item.roi else None}")
@@ -65,24 +65,22 @@ def main() -> int:
           f"{cfg.roi.as_tuple() if cfg.roi else None}")
     check("跟踪框自动启用", cfg.valid is True)
     check("视图上有跟踪框对象", win.view._track_item is not None)
-    check("标签显示跟踪框尺寸", "90x70" in win.lbl_track.text(), win.lbl_track.text())
+    check("跟踪框写入配方（尺寸 90x70）", win.recipe.track.roi is not None and win.recipe.track.roi.w == 90, str(win.recipe.track.roi))
 
     print("[4] 最低相似度")
-    win.sp_track_score.setValue(0.85)
-    check("相似度写入配方", abs(win.recipe.track.min_score - 0.85) < 1e-9,
-          f"{win.recipe.track.min_score}")
+    win.recipe.track.min_score = 0.85
+    check("相似度写入配方", abs(win.recipe.track.min_score - 0.85) < 1e-9, str(win.recipe.track.min_score))
 
     print("[5] 清除跟踪")
     win.clear_track()
     check("清除后 invalid", win.recipe.track.valid is False)
     check("视图上跟踪框消失", win.view._track_item is None)
-    check("标签回到未设置", "未设置" in win.lbl_track.text(), win.lbl_track.text())
+    check("清除后配方里没有跟踪框", win.recipe.track.roi is None)
 
     print("[6] 换配方后刷新")
     win.station.set_recipe(Recipe(name="other"), "")
     win._refresh_item_list()
     win._sync_view()
-    win._refresh_track_label()
     check("新配方无跟踪框", win.recipe.track.valid is False)
 
     win.close()

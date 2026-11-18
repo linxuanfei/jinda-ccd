@@ -18,13 +18,19 @@ import os
 
 PROJECT = os.path.dirname(SPECPATH)     # noqa: F821  (SPECPATH 由 PyInstaller 注入)
 
-# 不把厂商 SDK 二进制打进包。现场装官方 MVSDK，用 MINDVISION_SDK 指向 MVCAMSDK_X64.dll / mvsdk.py。
+# 相机厂商 SDK 目录（放进去就随 exe 打包；没放也不影响启动）
 DATAS = [
     (os.path.join(PROJECT, 'config'), 'config'),
     (os.path.join(PROJECT, 'recipes'), 'recipes'),
     (os.path.join(PROJECT, 'samples'), 'samples'),
     (os.path.join(PROJECT, 'docs'), 'docs'),
 ]
+import struct as _struct
+for _sdk in ('sdk/mindvision', 'sdk'):
+    _p = os.path.join(PROJECT, *_sdk.split('/'))
+    if os.path.isdir(_p):
+        DATAS.append((_p, 'sdk' if _sdk == 'sdk' else 'sdk/mindvision'))
+        break
 
 a = Analysis(
     [os.path.join(PROJECT, 'tools', 'visionapp_gui.py')],
@@ -34,12 +40,15 @@ a = Analysis(
     hiddenimports=[
         'serial',
         # 下面这些是「函数内延迟 import」或动态导入，PyInstaller 静态分析看不到，必须显式声明
-        'visionapp.mindvision',
+        'visionapp.sources_mindvision',
         'visionapp.tracking',
         'visionapp.align',
         'visionapp.imgio',
         'visionapp.paths',
         'visionapp.qtcompat',
+        'visionapp.ui.ng_gallery',
+        'visionapp.ui.general_settings',
+        'visionapp.diskguard',
     ],           # outputs.py 里是函数内 import，静态分析找不到
     hookspath=[],
     hooksconfig={},

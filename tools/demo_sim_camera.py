@@ -18,9 +18,9 @@ import cv2
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from visionapp.imgio import imwrite as imwrite_safe     # noqa: E402
 from visionapp.recipe import Pipeline, Recipe          # noqa: E402
 from visionapp.sources import open_source               # noqa: E402
+from visionapp.imgio import imwrite as imwrite_safe     # noqa: E402
 
 
 def main() -> int:

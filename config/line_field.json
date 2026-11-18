@@ -1,0 +1,34 @@
+{
+  "name": "现场产线（2 机位 / 迈德威视）",
+  "merge_rule": "all_ok",
+  "stations": [
+    {
+      "id": 1,
+      "name": "机位1",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "056082520586",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    },
+    {
+      "id": 2,
+      "name": "机位2",
+      "enabled": true,
+      "source": {
+        "kind": "mindvision",
+        "serial": "",
+        "model": "MV-GE507GC",
+        "exposure_ms": 100.0,
+        "gain": 0,
+        "trigger": "hardware"
+      },
+      "recipe": "recipes/2pin_imported.json"
+    }
+  ]
+}

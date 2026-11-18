@@ -2,27 +2,24 @@
 
 开源视觉检测系统。当前阶段：**模拟相机跑通 + 检测流水线骨架**，不依赖任何相机即可开发。
 
-## 主干
+## 文档
 
-这一份树以 2026-11-16 交来的原 VisionApp 为唯一主干（压缩包解开后的 `vision-main`）。先前并行写的调机界面留在分支 `cursor/sop-reference-4264`，只作对照，没有整树盖回来。
-
-调机功能按底稿自己的模块接上：检测框、六种极性、阈值 0/255 拦截、间距/贴板、跟踪、X/Y 分轴标定、结果表和相机路数。角色仍走原来的登录对话。迁了什么、怎么验、哪些仍是空入口，写在 `docs/调机迁移.md`。
-
-迈德威视 `MV-GE500M-TPO`（序列号 `058071510393`，GigE）走官方 MVSDK。装哪份库、没装 SDK 时会怎样，写在 `docs/迈德威视相机.md`。分辨率和曝光范围待手册确认。
-
-这一支还收了能上老机器、能交付的部分：Win7 用 `visionapp/qtcompat.py`（有 PySide6 就用 Qt6，没有再退 PySide2），打包脚本在 `build_exe.cmd` / `build_exe_win7.cmd`。中文路径的图走 `visionapp/imgio.py`。线形 ROI、多选后按中心批量对齐（可撤销）、连画、模板跟踪（跟丢判 NG，运行时基准不写进配方）、抓取点和红色屏蔽区、用「设定值 / 实测值」反算标定，以及算子上的 `judge.kind=design`。HPro 模式 0/1/2 仍是标称 ± 公差，阈值 0/255 仍然直接拦截。
-
-```bash
-QT_QPA_PLATFORM=offscreen python tools/selftest_runner.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_calibration.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_multistation.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_outputs.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_p1.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_ui.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_ui_calib.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_setup.py
-QT_QPA_PLATFORM=offscreen python tools/selftest_mindvision.py
-```
+| 文档 | 内容 |
+| --- | --- |
+| [README.md](README.md)（本文件） | 怎么跑、功能清单 |
+| [setup.md](setup.md) | 开发环境搭建（macOS / 无显示器） |
+| [ARCH.md](ARCH.md) | 架构决策（ADR-001~015），推翻旧决策要新增 ADR |
+| [PROCESS.md](PROCESS.md) | 开发、联调、验收、发布流程 |
+| [docs/项目计划.md](docs/项目计划.md) | 范围、里程碑、风险 |
+| [docs/功能差距.md](docs/功能差距.md) | 与遗留 In-Vision 的逐项差距（D-01~D-36）+ 排期 |
+| [docs/现场实操需求.md](docs/现场实操需求.md) | **现场实际操作流程 + R-01~R-22 必须项**（含现状对照、实施顺序、技术方案草稿） |
+| [docs/现场信息采集清单.md](docs/现场信息采集清单.md) | **第一次去现场要采集什么**（相机/IO/协议/样张/待确认问题/待补截图/带回清单） |
+| [docs/相机接入-MindVision.md](docs/相机接入-MindVision.md) | 迈德威视相机接入：需要哪些 SDK 文件、验证步骤、打包与风险 |
+| [docs/老主机部署与驱动清单.md](docs/老主机部署与驱动清单.md) | **老检测机部署**：SDK 与驱动的区别、按系统版本定方案（Win7/32 位怎么办）、驱动版本怎么选、验证 3 步 |
+| [docs/视频对照-实测参数.md](docs/视频对照-实测参数.md) | **现场视频反读出来的真实参数**（阈值 111/255、面积 25~999999、设计值 10000 实测 7626、.HPro 参数段实证） |
+| [docs/原厂功能说明-InVision8.2.md](docs/原厂功能说明-InVision8.2.md) | **原厂界面 16 张截图逐屏整理**（菜单/检测设置/规则设置/结果/超级管理员），功能对齐与验收依据 |
+| [docs/软件功能说明/](docs/软件功能说明/) | 上述截图原件（现场提供） |
+| [docs/compose/spec/ui-theme.md](docs/compose/spec/ui-theme.md) | 界面主题设计令牌 |
 
 ## 环境
 
@@ -81,7 +78,8 @@ visionapp/
 | `synthetic` | 合成画面，带真值，**当前开发主用** | ✅ 可用 |
 | `folder` | 回放图片目录（黄金样张/原程序截图） | ✅ 可用 |
 | `rtsp` | 网络相机（MaixCam Pro 开 RTSP 推流） | ⏳ 相机需联网 |
-| `uvc` | 本地 USB 摄像头 | ⏳ 待接相机 |
+| `uvc` | 本地 USB 摄像头 | ✅ 可用 |
+| `mindvision` | 工业相机 MindVision（迈德威视 MV-GE500M-TPO / GigE） | 🔧 代码就绪（支持 MVCAMSDK_X64.dll / mvsdk.py / GenICam 三套 SDK），待 SDK 文件+真机（[说明](docs/相机接入-MindVision.md)） |
 
 新增工业相机：在 `sources.py` 里实现 `FrameSource` 子类，并在 `open_source()` 注册即可，
 检测算法与配方完全不用改。
@@ -90,7 +88,7 @@ visionapp/
 
 | 算子 | 参数要点 | 输出 |
 | --- | --- | --- |
-| `find_blobs` | threshold / threshold_mode / blur / morph_kernel / min_area / max_area | 斑块列表（中心、面积、外框） |
+| `find_blobs` | **threshold_low/threshold_high 区间阈值**（1~254 限幅）、threshold（单阈值兼容）、threshold_mode / blur / morph_kernel / min_area / max_area / min_width / min_height / min_circularity、**pick_zone（抓取位置区位）/ show_pick / show_mask（红色屏蔽区）** | 斑块列表（中心、面积、外框、抓取点） |
 | `distance_pp` | src / blob_a / blob_b / mm_per_px | 两点距离（px 或 mm） |
 | `match_template` | template / min_score | 最佳位置 + 相似度分数 |
 | `area_of_blob` | src / index / mm2_per_px2 | 面积 |
@@ -99,7 +97,7 @@ visionapp/
 ## 产线运行（P0）
 
 界面工具条从左到右：`新建/打开/保存/另存为/导入.HPro` → `配方下拉 + 管理` → `相机` → `记录设置`
-→ `模式(连续/单次) + 开始/停止/单次检测/清空计数`。
+→ `模式(连续/单次) + 开始/停止/单帧/清空计数`。
 
 右侧"运行统计"面板实时显示：**总判定 / OK / NG / 良率 / 总数 / FPS / 单帧耗时**。
 
@@ -147,7 +145,7 @@ python tools\selftest_ui_calib.py       # 界面流程：标定→刷新→跑�
 
 ## 多机位（已实现，默认 6 路）
 
-产线配置在 **`config/line.json`**：
+产线配置在 **`config/line.json`**（6 机位演示用）；**现场是 2 机位**，用 `config/line_field.json`（迈德威视 ×2 + `recipes/2pin_imported.json`）：
 
 ```jsonc
 {
@@ -252,6 +250,44 @@ python tools\selftest_outputs.py    # 模板/文件/串口(假串口)/TCP/报警
 
 启动日志写在 `logs\gui.log`（pythonw 没有控制台，异常都记在这里）。
 
+## 打包成 exe（检测机部署）
+
+生产检测机上跑的是 exe，不是源码树。打包：
+
+```powershell
+build_exe.cmd                    # 等价于 pyinstaller packaging\VisionApp.spec --noconfirm --clean
+```
+
+产出 `dist\VisionApp\VisionApp.exe`（onedir，约 260 MB，免安装绿色目录）。把**整个 `dist\VisionApp` 文件夹**拷到检测机（建议 `D:\VisionApp`），双击 `VisionApp.exe` 即可。
+
+| 项 | 说明 |
+| --- | --- |
+| 资源 | `config/`、`recipes/`、`samples/`、`docs/` 打进 exe 内部（`_internal`） |
+| 首次启动 | 自动释放到 exe 旁边；之后配置、配方、结果、日志都写在 exe 所在目录 |
+| 结果 | `results\<机位>\<配方>\<日期>.csv` + `NG\<日期>\*.png` |
+| 日志 | `logs\gui.log`（exe 无控制台，异常/启动记录都在这里） |
+| 升级 | 重新打包后整体替换；保留原 `config/` 与 `recipes/` 即可沿用配方 |
+| 启动参数 | 与 python 版一致：`VisionApp.exe --frames 3 --run 1`（自检跑 3 帧自动退出）、`--shot D:\ui.png`（截图自检）、`--single --source uvc --index 0` |
+| 系统要求 | **Windows 10 / 11 x64**（Python 3.12 + Qt 6.12）；Win7/8.1/32 位需另做兼容版，见 [老主机部署与驱动清单](docs/老主机部署与驱动清单.md) |
+| 环境体检 | 到老机器上跑 `tools\check_env.ps1`（右键用 PowerShell 运行），把生成的 `env_report.txt` 发回 |
+
+> ⚠️ **必须用 `build_exe.cmd` 打包，不要直接跑 `pyinstaller`**：脚本会把 `_deps\cv`、`_deps\qt` 放进
+> `PYTHONPATH`，否则 PyInstaller 找不到 opencv/PySide6，打出来的 exe 一启动就报
+> `ModuleNotFoundError: No module named 'cv2'`（这个坑已经踩过一次）。
+
+### 两套包
+
+| 包 | 适用系统 | 技术栈 | 构建命令 | 产物 |
+| --- | --- | --- | --- | --- |
+| **主包** | Windows 10 / 11 x64 | Python 3.12 + Qt6（PySide6） | `build_exe.cmd` | `dist\VisionApp\VisionApp.exe` |
+| **Win7 兼容包** | Windows 7 SP1 x64 起，Win10/11 也能跑 | Python 3.8 + Qt5（PySide2） | `build_exe_win7.cmd` | `dist_win7\VisionApp-Win7\VisionApp-Win7.exe` |
+| **32 位包（现场首选）** | Win7 SP1 x86/x64、Win10/11 x64 | Python 3.8 **x86** + Qt5 | `build_exe_x86.cmd` | `dist_x86\VisionApp-x86\VisionApp-x86.exe`（能直接用现场 x86 的 `MVCAMSDK.dll`） |
+
+Win7 包需要先装 **KB2999226**（UCRT 补丁）。两套包功能一致，差异见 [老主机部署与驱动清单](docs/老主机部署与驱动清单.md)。
+
+> 打包要用 **Python 3.11/3.12 x64**（Win7 包用 3.8 x64），且项目路径别太深（Windows 260 字符路径限制）。
+> `_deps\` 只是本机验证用的依赖目录，正式打包建议在 venv 里 `pip install -r requirements.txt pyinstaller`。
+
 ## .HPro 导入器（映射表可配置）
 
 ```powershell
@@ -262,7 +298,7 @@ python tools\hpro_import.py --hpro "E:\lin\mv\2pin.HPro" --report out\2pin_impor
 - 每个类型可配：`meaning`（含义）、`op`（目标算子）、`params`（默认参数）、
   `judge_from_rule`（是否取原模板判定）、`role: baseline`（作为基准项供 `$baseline` 引用）；
 - 判定换算：`judge.modes` 里按模式号配置表达式，例如 `"5": {"expr": "value2"}`、
-  `"0": {"expr": "low - tol ~ low + tol"}`；
+  `"0": {"expr": "low ~ low + tol"}`；
 - 线形 ROI（高度为 0）会按 `roi.line_roi_thickness` 自动加厚；
 - 未配置类型按 `unmapped.action` 处理（`skip` 跳过 / `placeholder` 建占位项）。
 
@@ -307,7 +343,7 @@ python tools\hpro_inspect.py --file "E:\lin\mv\2pin.HPro" --json out\2pin.hpro.j
 | 第 1 行 | 机位数（站数） |
 | 站头 | `<站号> <检测项数>` |
 | 检测项 | ①参数行（7 段，制表符分隔）②ROI 行 `x1 y1 x2 y2` ③附加行（判定规则 + 评分阈值 `0 200 0 0.85` + 标志位） |
-| 文件尾 | 类型4（版式不是项内判定行），如 `4 0 0.000 0.120 0.120 1 1` → 0.000 ± 0.120 |
+| 站尾 | 输出/组别配置，如 `4 0 0.000 0.120 0.120 1 1` |
 
 实测结果：
 
@@ -321,8 +357,8 @@ python tools\hpro_inspect.py --file "E:\lin\mv\2pin.HPro" --json out\2pin.hpro.j
 判定规则行的形态（推测，待黄金样张验证）：
 
 ```
-1 1 0 -1 -0.100 0.080 0.080 100 99999 0 0 0     # 模式1, 标称=-0.100 ± 0.080 → -0.180 ~ -0.020
--1 5 0 -1 300.000 1000.000 100.000 100 99999 0 0 0   # 模式5, 300.000 ~ 1000.000（第三个数含义未证实）
+1 1 0 -1 -0.100 0.080 0.080 100 99999 0 0 0     # 基准项=1, 下限=-0.100, 公差0.080
+-1 5 0 -1 300.000 1000.000 100.000 100 99999 0 0 0   # 范围 300.000 ~ 1000.000
 ```
 
 ## 下一步（M1 → M2）

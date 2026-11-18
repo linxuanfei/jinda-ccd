@@ -49,7 +49,7 @@ except ImportError:                             # 退回 Qt5（Win7）
         QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
         QGraphicsView, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
         QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-        QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem,
+        QPushButton, QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem,
         QToolBar, QToolButton, QVBoxLayout, QWidget,
     )
     import PySide2.QtGui as _qtgui
@@ -69,14 +69,19 @@ except ImportError:                             # 退回 Qt5（Win7）
                                 AltModifier=Qt.AltModifier)
     Qt.Key = _enum("Key", Key_Delete=Qt.Key_Delete, Key_Escape=Qt.Key_Escape,
                    Key_A=Qt.Key_A, Key_Return=Qt.Key_Return, Key_Enter=Qt.Key_Enter)
-    Qt.PenStyle = _enum("PenStyle", DashLine=Qt.DashLine, SolidLine=Qt.SolidLine)
+    Qt.PenStyle = _enum("PenStyle", NoPen=Qt.NoPen, DashLine=Qt.DashLine,
+                        SolidLine=Qt.SolidLine, DotLine=Qt.DotLine)
+    Qt.BrushStyle = _enum("BrushStyle", NoBrush=Qt.NoBrush, SolidPattern=Qt.SolidPattern)
+    Qt.ScrollBarPolicy = _enum("ScrollBarPolicy",
+                               ScrollBarAlwaysOff=Qt.ScrollBarAlwaysOff,
+                               ScrollBarAlwaysOn=Qt.ScrollBarAlwaysOn,
+                               ScrollBarAsNeeded=Qt.ScrollBarAsNeeded)
     Qt.CursorShape = _enum("CursorShape", CrossCursor=Qt.CrossCursor,
                            ArrowCursor=Qt.ArrowCursor, PointingHandCursor=Qt.PointingHandCursor)
     Qt.AspectRatioMode = _enum("AspectRatioMode", KeepAspectRatio=Qt.KeepAspectRatio)
     Qt.Orientation = _enum("Orientation", Horizontal=Qt.Horizontal, Vertical=Qt.Vertical)
     Qt.AlignmentFlag = _enum("AlignmentFlag", AlignLeft=Qt.AlignLeft, AlignCenter=Qt.AlignCenter,
                              AlignRight=Qt.AlignRight, AlignVCenter=Qt.AlignVCenter)
-    Qt.WidgetAttribute = _enum("WidgetAttribute", WA_StyledBackground=Qt.WA_StyledBackground)
     Qt.ItemDataRole = _enum("ItemDataRole", UserRole=Qt.UserRole)
 
     QImage.Format = _enum("Format", Format_RGB888=QImage.Format_RGB888)
