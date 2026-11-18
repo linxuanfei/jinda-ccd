@@ -14,3 +14,4 @@ _deps/
 *.spec.bak
 .DS_Store
 Thumbs.db
+dist_x86_prev/

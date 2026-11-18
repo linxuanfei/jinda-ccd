@@ -150,15 +150,34 @@ class Pipeline:
             return float(pick[0]), float(pick[1])
         return float(getattr(b, "cx", 0.0)), float(getattr(b, "cy", 0.0))
 
-    def _apply_rules(self, items: list, ctx: dict) -> None:
-        """按【规则设定】计算 X/Y 距离、参差度、面积并维护基准线。"""
+    @staticmethod
+    def _judge_rule(rule: dict, value: float) -> tuple:
+        """按规则里的 设定值/上公差/下公差 判定；没配就返回 (None, '')。"""
+        try:
+            target = float(rule.get("target", 0) or 0)
+            tup = float(rule.get("tol_up", 0) or 0)
+            tlo = float(rule.get("tol_lo", 0) or 0)
+        except Exception:                                # noqa: BLE001
+            return None, ""
+        if target == 0 and tup == 0 and tlo == 0:
+            return None, ""                              # 没设判定 → 只出数值
+        hi = target + (tup if tup else abs(tlo))
+        lo = target - (abs(tlo) if tlo else abs(tup))
+        if lo > hi:
+            lo, hi = hi, lo
+        ok = lo <= float(value) <= hi
+        return bool(ok), f"设定 {target:g}，允许 {lo:g}~{hi:g}"
+
+    def _apply_rules(self, items: list, ctx: dict) -> bool:
+        """按【规则设定】计算 X/Y 距离、参差度、面积并维护基准线；返回规则整体是否 OK。"""
         rules = list(getattr(self.recipe, "rules", []) or [])
         if not rules:
-            return
+            return True
         import math
 
         from .ops import Item as _Item
 
+        all_ok = True
         bmap = self._box_map(items)
         for idx, rule in enumerate(rules, start=1):
             kind = str(rule.get("kind", "x"))
@@ -188,7 +207,7 @@ class Pipeline:
                                                    roi=line, params={}))
                 else:
                     found.roi = line
-                ctx[rid] = ItemResult(rid, "rule", ok=True, value=0.0, unit="",
+                ctx[rid] = ItemResult(rid, "rule", ok=None, value=None, unit="",
                                       message=f"基准线已生成（框{fno}-框{tno}）")
                 continue
 
@@ -201,9 +220,13 @@ class Pipeline:
                 if pa is None or pb is None:
                     ctx[rid] = ItemResult(rid, "rule", ok=False, message="框内没抓到斑块")
                     continue
-                val = (pb[0] - pa[0]) if kind == "x" else (pb[1] - pa[1])
-                ctx[rid] = ItemResult(rid, "rule", ok=True, value=float(abs(val)),
-                                      unit="px", message=name)
+                raw = (pb[0] - pa[0]) if kind == "x" else (pb[1] - pa[1])
+                val = abs(raw) if rule.get("abs", True) else raw
+                ok, why = self._judge_rule(rule, val)
+                if ok is False:
+                    all_ok = False
+                ctx[rid] = ItemResult(rid, "rule", ok=ok, value=float(val), unit="px",
+                                      message=(why or "") + (f"  {rule.get('note')}" if rule.get("note") else ""))
                 continue
 
             if kind == "area":
@@ -216,8 +239,16 @@ class Pipeline:
                         ok = False
                         break
                     total += float(getattr(res, "value", 0) or 0)
-                ctx[rid] = ItemResult(rid, "rule", ok=ok, value=total, unit="px2",
-                                      message=name if ok else "范围内有框没结果")
+                if not ok:
+                    all_ok = False
+                    ctx[rid] = ItemResult(rid, "rule", ok=False, value=total, unit="px2",
+                                          message="范围内有框没结果")
+                    continue
+                jok, why = self._judge_rule(rule, total)
+                if jok is False:
+                    all_ok = False
+                ctx[rid] = ItemResult(rid, "rule", ok=jok, value=float(total), unit="px2",
+                                      message=(why or "") + (f"  {rule.get('note')}" if rule.get("note") else ""))
                 continue
 
             if kind == "waviness":
@@ -230,9 +261,15 @@ class Pipeline:
                     ctx[rid] = ItemResult(rid, "rule", ok=False, message="框内没抓到斑块")
                     continue
                 ang = math.degrees(math.atan2(pb[1] - pa[1], pb[0] - pa[0]))
-                ctx[rid] = ItemResult(rid, "rule", ok=True, value=float(abs(ang)),
-                                      unit="deg", message=name)
+                val = abs(ang) if rule.get("abs", True) else ang
+                ok, why = self._judge_rule(rule, val)
+                if ok is False:
+                    all_ok = False
+                ctx[rid] = ItemResult(rid, "rule", ok=ok, value=float(val), unit="deg",
+                                      message=(why or "") + (f"  {rule.get('note')}" if rule.get("note") else ""))
                 continue
+
+        return all_ok
 
     def run(self, frame: Frame, annotate: bool = True) -> tuple[PipelineResult, np.ndarray | None]:
         import time
@@ -335,7 +372,8 @@ class Pipeline:
         elapsed = (time.perf_counter() - t0) * 1000.0
         # ---- 规则设定：按框号计算 X/Y/参差度/面积，或生成基准线 ----
         try:
-            self._apply_rules(items, ctx)
+            if not self._apply_rules(items, ctx):
+                all_ok = False
         except Exception:                                # noqa: BLE001
             pass
         result = PipelineResult(frame.index, ctx, all_ok, elapsed, track=track_info)

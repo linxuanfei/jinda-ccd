@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v54  (2026-11-18)")
+        self.setWindowTitle("JD.vision   v55  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1053,7 +1053,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v54  (2026-11-18)")
+        self.setWindowTitle("JD.vision   v55  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1343,6 +1343,9 @@ class MainWindow(QMainWindow):
                  if str(k).startswith("rule") or _types.get(k) not in ("find_blobs", "baseline", None)]
         self.tbl.setRowCount(len(items))
         _names = {it.id: _op_label(it) for it in self.recipe.items}
+        _kinds = {"x": "X方向", "y": "Y方向", "waviness": "参差度", "area": "面积", "baseline": "基准线"}
+        for _i, _r in enumerate(self.recipe.rules or [], start=1):
+            _names[f"rule{_i}"] = f"规则{_i} {_kinds.get(_r.get('kind'), '')}".strip()
         for r, (item_id, res) in enumerate(items):
             self.tbl.setItem(r, 0, QTableWidgetItem(_names.get(item_id, item_id)))
             val = "-" if res.get("value") is None else f"{res['value']:.3f} {res.get('unit', '')}"
@@ -1351,7 +1354,8 @@ class MainWindow(QMainWindow):
             self.tbl.setItem(r, 1, cell_val)
             ok = res.get("ok")
             cell = QTableWidgetItem({True: "OK", False: "NG", None: "-"}.get(ok, "-"))
-            cell.setForeground(QColor(theme.color("state.ok") if ok else theme.color("state.ng")))
+            cell.setForeground(QColor(theme.color("state.ok") if ok is True else
+                                      (theme.color("state.ng") if ok is False else theme.color("text.muted"))))
             cell.setFont(theme.mono_font(12))
             self.tbl.setItem(r, 2, cell)
             self.tbl.setItem(r, 3, QTableWidgetItem(res.get("message", "")))
