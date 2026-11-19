@@ -116,8 +116,8 @@ def test_mask() -> None:
 
     rec = Recipe(name="mask_demo", items=[it])
     res, img = Pipeline(rec).run(frame, annotate=True)
-    b, g, rr = img[220, 20]           # 背景像素（避开顶部状态条）→ 应被染红
-    check("屏蔽区被染红", int(rr) > int(g) and int(rr) > int(b), f"BGR={b},{g},{rr}")
+    b, g, rr = img[220, 20]           # 背景像素：现场要求不再整片染红（否则像黑色阴影）
+    check("屏蔽区不再染红", int(rr) == int(b) == int(g), f"BGR={b},{g},{rr}")
 
     d = res.as_dict()
     check("结果 JSON 不含 mask 数组", "mask" not in str(d)[:2000] or True)

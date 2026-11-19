@@ -431,17 +431,8 @@ def _match_template(frame: Frame, loc: dict, x: int, y: int, w: int, h: int):
 def draw_overlays(frame: Frame, result: PipelineResult) -> np.ndarray:
     """把结果画到画面上（供界面/截图使用）。"""
     img = frame.bgr.copy()
-    # 阈值屏蔽区：被排除的像素叠成红色（现场调阈值时看"屏蔽掉哪一块"）
-    for res in result.results.values():
-        mask = getattr(res, "mask", None)
-        if mask is None or mask.shape[:2] != img.shape[:2]:
-            continue
-        sel = mask > 0
-        if not sel.any():
-            continue
-        tint = np.zeros_like(img)
-        tint[..., 2] = 255
-        img[sel] = (img[sel] * (1.0 - MASK_ALPHA) + tint[sel] * MASK_ALPHA).astype(np.uint8)
+    # 注意：不再把"阈值屏蔽区"整片叠成红色。
+    # 现场反馈那会像一块黑色阴影盖在框里；阈值效果请用检测设置里的实时预览看。
     for res in result.results.values():
         for ov in res.overlays:
             kind = ov.get("kind")

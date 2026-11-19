@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v55  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v56  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1053,7 +1053,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v55  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v56  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
