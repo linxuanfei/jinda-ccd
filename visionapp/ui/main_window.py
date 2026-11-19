@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v66  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v67  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -912,8 +912,9 @@ class MainWindow(QMainWindow):
 
         box_res = QGroupBox("检测结果")
         rl = QVBoxLayout(box_res)
-        self.tbl = QTableWidget(0, 4)
-        self.tbl.setHorizontalHeaderLabels(["检测项", "值", "判定", "说明"])
+        self.tbl = QTableWidget(0, 6)
+        self.tbl.setHorizontalHeaderLabels(
+            ["备注", "对象", "基准", "设计值", "实测", "判定"])
         self.tbl.horizontalHeader().setStretchLastSection(True)
         rl.addWidget(self.tbl)
         rv.addWidget(box_res, 1)
@@ -1058,7 +1059,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v66  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v67  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1105,12 +1106,9 @@ class MainWindow(QMainWindow):
                     src.grab_once(1500)
                 except Exception as exc:                # noqa: BLE001
                     self.statusBar().showMessage(f"强制取图失败：{exc}", 6000)
-            frame = getattr(st.snapshot(), "last_frame", None)
+            frame = getattr(self, "_raw_frame", None)
             if frame is None:
-                try:
-                    frame = self.tiles[self.active].view.frame_bgr()
-                except Exception:                        # noqa: BLE001
-                    frame = None
+                frame = getattr(st.snapshot(), "last_frame", None)
             if frame is None:
                 frame = getattr(self, "_last_view_frame", None)
             if frame is None:
@@ -1127,6 +1125,7 @@ class MainWindow(QMainWindow):
                 self._log_crash("检测一次", exc)
                 continue
             st.runner.publish(result, annotated, base)
+            self._raw_frame = base
             try:
                 self._diag(f"检测一次：frame={base.shape[1]}x{base.shape[0]} "
                            f"结果项={len(result.results)} 规则={len(self.recipe.rules or [])}")
@@ -1185,6 +1184,7 @@ class MainWindow(QMainWindow):
                     # 没在跑（硬件触发/停止）：显示原图，避免上一帧的红框被当成"野框"
                     if idx == self.active:
                         self._last_view_frame = raw
+                        self._raw_frame = raw            # 检测/预览永远用这张原图
                         _fw = int(getattr(raw, "shape", [0, 0])[1] or 0)
                         _rw = int(self.recipe.frame_width or 0)
                         _big = _rw and abs(_fw - _rw) / float(_rw) > 0.2
@@ -1421,38 +1421,84 @@ class MainWindow(QMainWindow):
             pass
 
     def _fill_result_table(self, data: dict[str, Any]) -> None:
-        _types = {it.id: it.type for it in self.recipe.items}
-        items = [(k, v) for k, v in (data.get("items") or {}).items()
-                 if str(k).startswith("rule") or _types.get(k) not in ("find_blobs", "baseline", None)]
-        self.tbl.setRowCount(len(items))
-        _names = {it.id: _op_label(it) for it in self.recipe.items}
-        _kinds = {"x": "X方向", "y": "Y方向", "waviness": "参差度", "area": "面积", "baseline": "基准线"}
-        for _i, _r in enumerate(self.recipe.rules or [], start=1):
-            _names[f"rule{_i}"] = f"规则{_i} {_kinds.get(_r.get('kind'), '')}".strip()
-        for r, (item_id, res) in enumerate(items):
-            self.tbl.setItem(r, 0, QTableWidgetItem(_names.get(item_id, item_id)))
-            val = "-" if res.get("value") is None else f"{res['value']:.3f} {res.get('unit', '')}"
-            cell_val = QTableWidgetItem(val)
-            cell_val.setFont(theme.mono_font(12))
-            self.tbl.setItem(r, 1, cell_val)
-            ok = res.get("ok")
-            cell = QTableWidgetItem({True: "OK", False: "NG", None: "-"}.get(ok, "-"))
-            cell.setForeground(QColor(theme.color("state.ok") if ok is True else
-                                      (theme.color("state.ng") if ok is False else theme.color("text.muted"))))
-            cell.setFont(theme.mono_font(12))
-            self.tbl.setItem(r, 2, cell)
-            self.tbl.setItem(r, 3, QTableWidgetItem(res.get("message", "")))
-        tr = data.get("track")
-        if tr and False:
-            if tr.get("ok"):
-                dx, dy = tr.get("dx", 0), tr.get("dy", 0)
-                score = tr.get("score", 0)
-                self.lbl_track.setText(
-                    f"跟踪：偏移 {dx:+.1f},{dy:+.1f}px 相似度 {score:.3f}")
-            else:
-                self.lbl_track.setText("跟踪失败：" + str(tr.get("message", "")))
+        """检测结果：备注 | 对象 | 基准 | 设计值 | 实测 | 判定，并按 X/Y 方向分组。"""
+        items = (data or {}).get("items") or {}
+        rules = list(self.recipe.rules or [])
+        known = ("x", "y", "waviness", "area", "baseline")
+        groups = [("x", "X 方向距离"), ("y", "Y 方向距离"),
+                  ("waviness", "参差度"), ("area", "面积"), ("baseline", "基准线"),
+                  (None, "其它")]
+        self.tbl.setRowCount(0)
+        hdr = self.tbl.horizontalHeaderItem(5)
+        if hdr is not None:
+            hdr.setText("判定结果")
 
-    # ------------------------------------------------------------------ 相机
+        def add_header(text: str) -> None:
+            r = self.tbl.rowCount()
+            self.tbl.insertRow(r)
+            cell = QTableWidgetItem(text)
+            f = cell.font()
+            f.setBold(True)
+            f.setPixelSize(13)
+            cell.setFont(f)
+            cell.setForeground(QColor(theme.color("accent.cyan")))
+            cell.setBackground(QColor(theme.color("bg.panel")))
+            self.tbl.setItem(r, 0, cell)
+            span = getattr(self.tbl, "setSpan", None)
+            self.tbl.setSpan(r, 0, 1, 6) if span is not None else None
+
+        def add_row(note: str, obj: str, base: str, design: str,
+                    value: str, verdict: str, ok) -> None:
+            r = self.tbl.rowCount()
+            self.tbl.insertRow(r)
+            for c, txt in enumerate((note, obj, base, design, value, verdict)):
+                cell = QTableWidgetItem(txt)
+                if c in (4, 5):
+                    cell.setFont(theme.mono_font(12))
+                if c == 5:
+                    cell.setForeground(QColor(
+                        theme.color("state.ok") if ok is True else
+                        (theme.color("state.ng") if ok is False else theme.color("text.muted"))))
+                self.tbl.setItem(r, c, cell)
+
+        if not rules:
+            for k, v in items.items():
+                if str(k).startswith("__"):
+                    continue
+                add_row("", str(k), "-", "-",
+                        "-" if v.get("value") is None else f"{v['value']:.3f}",
+                        {True: "OK", False: "NG", None: "-"}.get(v.get("ok"), "-"), v.get("ok"))
+            return
+
+        try:
+            self.tbl.resizeColumnsToContents()
+        except Exception:                                # noqa: BLE001
+            pass
+        for kind, title in groups:
+            if kind is None:
+                idxs = [i for i, r in enumerate(rules, 1) if r.get("kind") not in known]
+            else:
+                idxs = [i for i, r in enumerate(rules, 1) if r.get("kind") == kind]
+            if not idxs:
+                continue
+            add_header(title)
+            for i in idxs:
+                rule = rules[i - 1]
+                res = items.get(f"rule{i}") or {}
+                val = res.get("value")
+                note = str(rule.get("note") or "")
+                obj = f"{rule.get('from_no')}→{rule.get('to_no')}"
+                base = str(rule.get("base") or "-")
+                try:
+                    design = (f"{float(rule.get('target', 0) or 0):g}"
+                              f" (+{float(rule.get('tol_up', 0) or 0):g}/"
+                              f"{float(rule.get('tol_lo', 0) or 0):g})")
+                except Exception:                        # noqa: BLE001
+                    design = "-"
+                disp = "-" if val is None else f"{float(val):.3f}"
+                verdict = {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-")
+                add_row(note, obj, base, design, disp, verdict, res.get("ok"))
+
     def open_source_dialog(self) -> None:
         """换相机。
 
@@ -2949,7 +2995,9 @@ class MainWindow(QMainWindow):
     def _restore_raw_view(self) -> None:
         """把画面恢复成原图（清掉阈值预览的红色覆盖）。"""
         st = self.station
-        frame = getattr(st.runner.snapshot(), "last_frame", None)
+        frame = getattr(self, "_raw_frame", None)
+        if frame is None:
+            frame = getattr(st.runner.snapshot(), "last_frame", None)
         if frame is None:
             frame = getattr(self, "_last_view_frame", None)
         if frame is None:
@@ -2966,12 +3014,9 @@ class MainWindow(QMainWindow):
         import cv2
 
         st = self.station
-        frame = getattr(st.runner.snapshot(), "last_frame", None)
+        frame = getattr(self, "_raw_frame", None)
         if frame is None:
-            try:
-                frame = self.tiles[self.active].view.frame_bgr()
-            except Exception:                            # noqa: BLE001
-                frame = None
+            frame = getattr(st.runner.snapshot(), "last_frame", None)
         if frame is None:
             frame = getattr(self, "_last_view_frame", None)
         if frame is None:
@@ -3004,21 +3049,12 @@ class MainWindow(QMainWindow):
                 continue
             sub = img[y:y2, x:x2]
             gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
-            _no = self._box_no(it.id)
-            try:
-                _no_i = int(_no)
-            except (TypeError, ValueError):
-                _no_i = 0
-            # 范围没选（0）时：所有框都按滑条值预览，保证一定能看到变化
-            _in_range = (not _lo_no) or (bool(_no_i) and _lo_no <= _no_i <= _hi_no)
-            if _in_range:
-                lo = int(self.sp_det_lo.value())          # 范围内都用滑条当前值预览
-                hi = int(self.sp_det_hi.value())
-                zone_now = self.cb_pick_dir.currentText()
-            else:
-                lo = int(it.params.get("threshold_low", 111) or 0)
-                hi = int(it.params.get("threshold_high", 255) or 255)
-                zone_now = str(it.params.get("pick_zone", "白色中下"))
+            _cur = self._current_item()
+            if _cur is not None and it.id != _cur.id:
+                continue                                   # 只预览当前选中的这个框
+            lo = int(self.sp_det_lo.value())
+            hi = int(self.sp_det_hi.value())
+            zone_now = self.cb_pick_dir.currentText()
             white = str(zone_now).startswith("白色")
             if white:
                 _, bw = cv2.threshold(gray, max(0, min(255, lo)), 255, cv2.THRESH_BINARY)
@@ -3029,7 +3065,7 @@ class MainWindow(QMainWindow):
                 _, bw = cv2.threshold(gray, max(0, min(255, lo)), 255, cv2.THRESH_BINARY_INV)
             # 红色半透明覆盖选中像素（现场最直观）
             # 现场要求：红色 = 被阈值排除掉的像素（白抓取时黑色部被盖红，反之亦然）
-            mask = bw > 0            # 把"会被抓取"的像素涂红（现场看的是选中区）
+            mask = bw <= 0           # 红色 = 被阈值排除的像素（要抓的地方保持原样）
             if mask.any():
                 _tinted += int(mask.sum())
                 sub[mask] = (sub[mask] * 0.45 + np.array([0, 0, 255]) * 0.55).astype(np.uint8)
