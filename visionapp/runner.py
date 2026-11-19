@@ -213,7 +213,19 @@ class Runner:
     # ------------------------------------------------------------------ 内部
     def _loop(self) -> None:
         while not self._stop_evt.is_set():
-            ok = self._process_once()
+            try:
+                ok = self._process_once()
+            except MemoryError:
+                # 32 位进程地址空间吃紧：跳帧而不是让相机线程死掉
+                with self._lock:
+                    self._last_error = "内存不足，已跳过一帧（建议关掉其它程序或降低采集帧率）"
+                time.sleep(0.2)
+                continue
+            except Exception as exc:                     # noqa: BLE001
+                with self._lock:
+                    self._last_error = f"采集异常: {exc}"
+                time.sleep(0.2)
+                continue
             if self._mode == MODE_SINGLE:
                 break
             if not ok:
@@ -249,7 +261,7 @@ class Runner:
             with self._lock:
                 self._last_annotated = frame.bgr
                 self._seq += 1
-            self._last_raw = frame.bgr
+            self._last_raw = self._last_annotated
             self._last_mean = float(frame.bgr.mean()) if frame.bgr is not None else 0.0
             return True
         recheck = self._recheck

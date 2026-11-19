@@ -516,8 +516,10 @@ class ImageView(QGraphicsView):
     def set_frame(self, bgr: np.ndarray) -> None:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
-        img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+        # 不 copy：QPixmap.fromImage 会自己拷一份，rgb 在本函数内保持存活
+        img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
         pix = QPixmap.fromImage(img)
+        del img
         if self._pix_item is None:
             self._pix_item = self._scene.addPixmap(pix)
             self._pix_item.setZValue(0)

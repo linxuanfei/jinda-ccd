@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v58  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v59  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1054,7 +1054,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v58  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v59  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1107,7 +1107,7 @@ class MainWindow(QMainWindow):
         _seqs = getattr(self, "_seq_cache", None)
         if _seqs is None:
             _seqs = self._seq_cache = {}
-        draw_budget = _now - getattr(self, "_draw_ts", 0) > 0.066
+        draw_budget = _now - getattr(self, "_draw_ts", 0) > 0.14
         for idx, st in enumerate(self.manager.stations):
             snap = st.snapshot()
             tile = self.tiles[idx]
@@ -3566,6 +3566,12 @@ class MainWindow(QMainWindow):
     def new_recipe(self) -> None:
         if any(it.roi is not None for it in self.recipe.items) and not self._ask_save_before("新建模板"):
             return
+        # 运行中换配方会让采集线程读到半成品 → 先停再换
+        try:
+            if self.manager.running():
+                self.manager.stop_all()
+        except Exception:                                # noqa: BLE001
+            pass
         from ..ops import Item
 
         rec = Recipe(name="untitled")      # 新模板空白：不预置默认检测项

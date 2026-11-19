@@ -862,6 +862,7 @@ class MindVisionSource(FrameSource):
         sdk_path: str = "",
         sdk: Any = None,
         name: str = "",
+        max_width: int = 0,
         **ignored: Any,
     ):
         self.index = int(index)
@@ -877,6 +878,13 @@ class MindVisionSource(FrameSource):
         self.gain = None if gain_value is None else float(gain_value)
         self.fps = float(fps or 0) or None
         self.trigger = (trigger or "hardware").lower()
+        # 32 位进程（现场 x86 包）地址空间只有 2GB，5MP 每帧 15MB 会很快 OOM，
+        # 默认把长边降到 1600；64 位调试版保持原分辨率。
+        import sys as _sys
+        if max_width:
+            self.max_width = int(max_width)
+        else:
+            self.max_width = 1600 if _sys.maxsize <= 2 ** 32 else 0
         self._sdk = sdk
         self._sdk_path = sdk_path or ""
         self._handle: int | None = None
@@ -969,6 +977,10 @@ class MindVisionSource(FrameSource):
             image = self._sdk.grab(self._handle, int(timeout_ms))
         if image is None:
             return None
+        if self.max_width and image.shape[1] > self.max_width:
+            sc = float(self.max_width) / float(image.shape[1])
+            image = cv2.resize(image, (self.max_width, int(round(image.shape[0] * sc))),
+                               interpolation=cv2.INTER_AREA)
         self._info.width = int(image.shape[1])
         self._info.height = int(image.shape[0])
         idx = self._frame_index
