@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v57  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v58  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1054,7 +1054,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v57  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v58  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -3363,6 +3363,42 @@ class MainWindow(QMainWindow):
             return
         rects = {it.id: it.roi for it in self.recipe.items
                  if it.id in ids and it.roi is not None}
+
+        # 现场用法：选中 1 条直线 + 若干框，点对齐 = 以直线为基准摆框
+        _lines = {k: r for k, r in rects.items() if r.is_line() and r.line}
+        _boxes = {k: r for k, r in rects.items() if not r.is_line()}
+        if len(_lines) == 1 and _boxes and action in ("align_top", "align_bottom",
+                                                      "align_left", "align_right"):
+            ln = next(iter(_lines.values()))
+            x1, y1, x2, y2 = ln.line
+            new = {}
+            for k, r in _boxes.items():
+                if action == "align_bottom":
+                    new[k] = Rect(r.x, int(round(max(y1, y2) - r.h)), r.w, r.h)
+                elif action == "align_top":
+                    new[k] = Rect(r.x, int(round(min(y1, y2))), r.w, r.h)
+                elif action == "align_left":
+                    new[k] = Rect(int(round(min(x1, x2))), r.y, r.w, r.h)
+                else:
+                    new[k] = Rect(int(round(max(x1, x2) - r.w)), r.y, r.w, r.h)
+            self._push_undo()
+            for it in self.recipe.items:
+                if it.id in new:
+                    old_roi = it.roi
+                    it.roi = new[it.id]
+                    if (old_roi is not None and it.params.get("cells")
+                            and not it.roi.is_line()):
+                        ddx = it.roi.x - old_roi.x
+                        ddy = it.roi.y - old_roi.y
+                        it.params["cells"] = [[c[0] + ddx, c[1] + ddy, c[2], c[3]]
+                                              for c in it.params["cells"]]
+            self._refresh_item_list(select=self._current_index())
+            self._sync_view()
+            self.view.set_selection([k for k in ids])
+            self.statusBar().showMessage(
+                f"已以直线为基准{ACTION_LABELS[action]}：{len(new)} 个框", 4000)
+            return
+
         try:
             new = align_rects(rects, action, order=ids)
         except ValueError as exc:

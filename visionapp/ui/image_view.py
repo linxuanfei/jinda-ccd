@@ -147,8 +147,9 @@ class RoiItem(QGraphicsRectItem):
         else:
             delta = event.pos() - self._start_pos
         r = QRectF(self._start_rect)
+        z = max(0.05, float(self._view.transform().m11() or 1.0))
         if self._drag_mode == "move":
-            r.translate(delta)
+            r.translate(delta / z)
         else:
             if self._drag_mode in ("tl", "bl"):
                 r.setLeft(min(self._start_rect.left() + delta.x(), self._start_rect.right() - 5))
@@ -312,7 +313,8 @@ class LineRoiItem(QGraphicsLineItem):
         delta = (event.scenePos() - start_scene) if start_scene is not None else (pos - self._start_pos)
         ln = QLineF(self._start_line)
         if self._mode == "move":
-            ln.translate(delta)
+            z = max(0.05, float(self._view.transform().m11() or 1.0))
+            ln.translate(delta / z)
         else:
             if self._mode == "p1":
                 ln.setP1(pos)
@@ -383,7 +385,7 @@ class ImageView(QGraphicsView):
         self.setRenderHints(self.renderHints())
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         # 拖动时整屏刷新：否则序号/框会留下"虚影"残影
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         # 不开背景缓存：缓存会把旧像素留在框内，看起来像一块黑色阴影
         try:
             self.setCacheMode(QGraphicsView.CacheModeFlag(0))
@@ -1043,6 +1045,9 @@ class ImageView(QGraphicsView):
             cur = self.mapToScene(event.pos())
             delta_total_x = cur.x() - self._drag_origin.x()
             delta_total_y = cur.y() - self._drag_origin.y()
+            _z = max(0.05, float(self.transform().m11() or 1.0))
+            delta_total_x /= _z
+            delta_total_y /= _z
             for k in (self._drag_item_keys or [self._drag_item_key]):
                 it = self._rois.get(k)
                 start = self._drag_start_rects.get(k)
