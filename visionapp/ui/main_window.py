@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v62  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v63  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1058,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v62  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v63  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1174,12 +1174,16 @@ class MainWindow(QMainWindow):
             tile.set_active(i == self.active)
 
         snap = self.station.snapshot()
+        if snap.last_result:
+            self._fill_result_table(snap.last_result)     # 非运行状态也把结果显示出来
         self._update_stats(snap)
         # 结果表最多 5 次/秒，且只在有结果时刷新（原来每 33ms 刷一遍，界面会卡）
         _now = time.time()
         if snap.last_result and _now - getattr(self, "_tbl_ts", 0) > 0.2:
-            self._tbl_ts = _now
-            self._fill_result_table(snap.last_result)
+            _items = (snap.last_result or {}).get("items") or {}
+            if _items or self.tbl.rowCount() == 0:
+                self._tbl_ts = _now
+                self._fill_result_table(snap.last_result)
 
         merged = self.manager.merged_ok()
         totals = self.manager.totals()
@@ -2897,7 +2901,9 @@ class MainWindow(QMainWindow):
     def _restore_raw_view(self) -> None:
         """把画面恢复成原图（清掉阈值预览的红色覆盖）。"""
         st = self.station
-        frame = getattr(st.runner.snapshot(), "last_frame", None) or getattr(self, "_last_view_frame", None)
+        frame = getattr(st.runner.snapshot(), "last_frame", None)
+        if frame is None:
+            frame = getattr(self, "_last_view_frame", None)
         if frame is None:
             return
         base = frame.bgr if hasattr(frame, "bgr") else frame
@@ -2929,6 +2935,13 @@ class MainWindow(QMainWindow):
             return
         img = base.copy()
         self._preview_until = _t.time() + 1.5
+        try:
+            _lo_no = int(self.cb_det_from.currentData() or 0)
+            _hi_no = int(self.cb_det_to.currentData() or _lo_no)
+        except Exception:                                # noqa: BLE001
+            _lo_no = _hi_no = 0
+        if _lo_no and _hi_no < _lo_no:
+            _lo_no, _hi_no = _hi_no, _lo_no
         n = 0
         _tinted = 0
         _outside = 0
@@ -2943,8 +2956,14 @@ class MainWindow(QMainWindow):
                 continue
             sub = img[y:y2, x:x2]
             gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
-            if it.id == getattr(getattr(self, "_current_item")(), "id", None):
-                lo = int(self.sp_det_lo.value())          # 拖滑条时按当前值预览
+            _no = self._box_no(it.id)
+            try:
+                _no_i = int(_no)
+            except (TypeError, ValueError):
+                _no_i = 0
+            _in_range = bool(_lo_no) and bool(_no_i) and _lo_no <= _no_i <= _hi_no
+            if _in_range:
+                lo = int(self.sp_det_lo.value())          # 范围内都用滑条当前值预览
                 hi = int(self.sp_det_hi.value())
                 zone_now = self.cb_pick_dir.currentText()
             else:
@@ -2985,6 +3004,7 @@ class MainWindow(QMainWindow):
 
     def _clear_detect_threshold(self) -> None:
         """清屏：把阈值恢复成选中这一项时的原始值（拉错了用）。"""
+        self._stop_preview_timer()
         snap = getattr(self, "_th_snapshot", None)
         item = self._current_item()
         if not snap or item is None or snap.get("item") != item.id:
@@ -2999,8 +3019,19 @@ class MainWindow(QMainWindow):
         self._sync_pick_lines()
         self.statusBar().showMessage(f"已恢复原阈值：{snap['lo']} ~ {snap['hi']}", 5000)
 
+    def _stop_preview_timer(self) -> None:
+        """停掉延时预览，并解除预览锁，红色不再回来。"""
+        try:
+            t = getattr(self, "_live_timer", None)
+            if t is not None:
+                t.stop()
+        except Exception:                                # noqa: BLE001
+            pass
+        self._preview_until = 0.0
+
     def _apply_detect_threshold(self) -> None:
         """设定阈值：把当前上/下阈值 + 抓取方向应用到 起始框..结束框 范围的检测项。"""
+        self._stop_preview_timer()
         lo = int(self.sp_det_lo.value())
         hi = int(self.sp_det_hi.value())
         if lo > hi:
