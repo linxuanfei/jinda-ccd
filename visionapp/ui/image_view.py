@@ -8,6 +8,10 @@ import cv2
 import numpy as np
 from ..qtcompat import QLineF, QPointF, QRectF, Qt, Signal
 from ..qtcompat import QBrush, QColor, QImage, QPen, QPixmap
+try:
+    from PySide6.QtWidgets import QStyleOptionGraphicsItem, QStyle
+except ImportError:  # Qt5
+    from PySide2.QtWidgets import QStyleOptionGraphicsItem, QStyle
 from ..qtcompat import (
     QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem,
     QGraphicsScene, QGraphicsView,
@@ -58,6 +62,11 @@ class RoiItem(QGraphicsRectItem):
         return r.adjusted(-up, -up, 4, 4)
 
     def paint(self, painter, option, widget=None) -> None:      # noqa: N802
+        try:
+            option = QStyleOptionGraphicsItem(option)
+            option.state &= ~QStyle.StateFlag.State_Selected   # 不画选中虚线框
+        except Exception:                            # noqa: BLE001
+            pass
         super().paint(painter, option, widget)
         if not self.label or not getattr(self._view, "_show_numbers", True):
             return

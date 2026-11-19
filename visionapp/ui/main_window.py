@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v65  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v66  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -783,7 +783,7 @@ class MainWindow(QMainWindow):
 
         rg.addWidget(QLabel("基准框"), 2, 0)
         self.cb_rule_base = QComboBox()
-        self.cb_rule_base.addItem("（不选）", "")
+        self.cb_rule_base.addItem("无", "")
         rg.addWidget(self.cb_rule_base, 2, 1, 1, 3)
 
         rg.addWidget(QLabel("设定值"), 3, 0)
@@ -1058,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v65  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v66  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1084,8 +1084,13 @@ class MainWindow(QMainWindow):
 
     def step_once(self) -> None:
         """检测一次：同步跑一遍流水线，结果直接进表并显示标注图（不依赖采集线程）。"""
-        if self.manager.running():
-            return
+        _was_running = bool(self.manager.running())
+        if _was_running:
+            try:
+                self.manager.stop_all()          # 先暂停采集，避免和采集线程抢流水线
+                self.statusBar().showMessage("已暂停采集，正在做单次检测…", 3000)
+            except Exception:                    # noqa: BLE001
+                pass
         shown = 0
         for st in self.manager.stations:
             if not (st.cfg.enabled and st.source is not None):
@@ -1181,7 +1186,9 @@ class MainWindow(QMainWindow):
                     if idx == self.active:
                         self._last_view_frame = raw
                         _fw = int(getattr(raw, "shape", [0, 0])[1] or 0)
-                        if _fw and self.recipe.frame_width and _fw != self.recipe.frame_width:
+                        _rw = int(self.recipe.frame_width or 0)
+                        _big = _rw and abs(_fw - _rw) / float(_rw) > 0.2
+                        if _fw and _big:
                             try:
                                 self.recipe.scale_to(_fw)
                                 self._diag(f"缩放配方：{self.recipe.frame_width} ← frame {_fw}")
@@ -2816,7 +2823,7 @@ class MainWindow(QMainWindow):
             cb.blockSignals(True)
             cb.clear()
             if is_rule:
-                cb.addItem("无" if not nums else "（不选）", None)
+                cb.addItem("无", None)
             for n in nums:
                 cb.addItem(str(n), n)             # 只显示数字 1、2、3…
             if not nums and not is_rule:
@@ -2826,25 +2833,17 @@ class MainWindow(QMainWindow):
             else:
                 idx = 0 if is_rule else (1 if cb.count() > 1 else 0)
             cb.setCurrentIndex(max(0, idx))
+            if cb is getattr(self, "cb_det_from", None) and cb.count() > 1:
+                cb.setCurrentIndex(0)                       # 起始框默认第一个
+            if cb is getattr(self, "cb_det_to", None) and cb.count() > 1:
+                cb.setCurrentIndex(cb.count() - 1)          # 结束框默认最后一个
             cb.blockSignals(False)
-        # 检测设置默认选当前框
-        cur_item = self._current_item()
-        if cur_item is not None and cur_item.roi is not None and not cur_item.roi.is_line():
-            try:
-                no = int(str(self._box_no(cur_item)).lstrip("L"))
-                for cb in (self.cb_det_from, self.cb_det_to):
-                    i = cb.findData(no)
-                    if i >= 0:
-                        cb.setCurrentIndex(i)
-            except Exception:                            # noqa: BLE001
-                pass
-
     def _refresh_rule_options(self) -> None:
         """基准框下拉：左边画了几个框就列几个框号，另外列出直线 L1..LN。"""
         cur = self.cb_rule_base.currentData()
         self.cb_rule_base.blockSignals(True)
         self.cb_rule_base.clear()
-        self.cb_rule_base.addItem("（不选）", "")
+        self.cb_rule_base.addItem("无", "")
         n = 0
         for it in self.recipe.items:
             if it.roi is None or it.roi.is_line():
@@ -3010,7 +3009,8 @@ class MainWindow(QMainWindow):
                 _no_i = int(_no)
             except (TypeError, ValueError):
                 _no_i = 0
-            _in_range = bool(_lo_no) and bool(_no_i) and _lo_no <= _no_i <= _hi_no
+            # 范围没选（0）时：所有框都按滑条值预览，保证一定能看到变化
+            _in_range = (not _lo_no) or (bool(_no_i) and _lo_no <= _no_i <= _hi_no)
             if _in_range:
                 lo = int(self.sp_det_lo.value())          # 范围内都用滑条当前值预览
                 hi = int(self.sp_det_hi.value())
@@ -3044,7 +3044,7 @@ class MainWindow(QMainWindow):
             if _now2 - getattr(self, "_diag_ts", 0) > 1.0:
                 self._diag_ts = _now2
                 self._diag(f"预览：frame={base.shape[1]}x{base.shape[0]} 框={n} 红像素={_tinted}"
-                           f" 阈值={lo}~{hi}")
+                           f" 阈值={lo}~{hi} 范围={_lo_no}~{_hi_no}")
         except Exception:                            # noqa: BLE001
             pass
         if n == 0:

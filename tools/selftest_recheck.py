@@ -213,7 +213,7 @@ def test_object_numbering() -> None:
     import numpy as np
 
     yellow = ((img[..., 2] > 200) & (img[..., 1] > 200) & (img[..., 0] < 80)).sum()
-    check("画面上画了编号文字", int(yellow) > 0, f"yellow={int(yellow)}")
+    check("画面不再画黄色编号（现场要求去掉）", int(yellow) == 0, f"yellow={int(yellow)}")
 
 
 def main() -> int:

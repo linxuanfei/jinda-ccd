@@ -507,20 +507,5 @@ def draw_overlays(frame: Frame, result: PipelineResult) -> np.ndarray:
     cv2.rectangle(img, (0, 0), (img.shape[1] - 1, 40), (30, 30, 30), -1)
     cv2.putText(img, f"{status}  frame={result.frame_index}  {result.elapsed_ms:.1f}ms",
                 (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA)
-    # 对象编号：每个检测项在它的第一个标注旁写序号（现场靠编号认框）
-    # 放在统计条之后画，避免被顶部状态条盖住
-    for idx, res in enumerate(result.results.values(), start=1):
-        if not res.overlays or res.item_id.startswith("__"):
-            continue
-        first = res.overlays[0]
-        if first.get("kind") == "box":
-            x, y, _w, _h = first["rect"]
-            pos = (int(x), max(52, int(y) - 4))
-        elif first.get("kind") == "line":
-            pos = (int(first["p1"][0]), max(52, int(first["p1"][1]) - 6))
-        else:
-            continue
-        cv2.putText(img, f"{idx:02d}", pos, cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, (0, 255, 255), 2, cv2.LINE_AA)
 
     return img
