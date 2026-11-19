@@ -210,6 +210,34 @@ class Runner:
         """同步处理一帧（界面【检测一次】按钮、测试用）。count=False 只出结果不计数。"""
         return self._process_once(force_detect=force_detect, count=count)
 
+    def run_frame(self, image, force_detect: bool = True, count: bool = False) -> bool:
+        """用给定的一帧（numpy BGR）直接跑流水线：硬件触发等不到图时兜底用。"""
+        import time
+
+        from .core import Frame
+        with self._lock:
+            pipeline = self._pipeline_provider()
+        if pipeline is None or image is None:
+            return False
+        try:
+            frame = Frame.create(image)
+        except Exception:                                # noqa: BLE001
+            return False
+        t0 = time.perf_counter()
+        try:
+            result, annotated = pipeline.run(frame, annotate=True)
+        except Exception as exc:                         # noqa: BLE001
+            with self._lock:
+                self._last_error = f"检测失败: {exc}"
+            return False
+        with self._lock:
+            self._last_result = result.as_dict()
+            self._last_annotated = annotated
+            self._last_raw = image
+            self._seq += 1
+            self._last_error = ""
+        return True
+
     # ------------------------------------------------------------------ 内部
     def _loop(self) -> None:
         while not self._stop_evt.is_set():

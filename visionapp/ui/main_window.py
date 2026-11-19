@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v59  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v60  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1054,7 +1054,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v59  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v60  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1088,12 +1088,23 @@ class MainWindow(QMainWindow):
                 # 硬件/软触发模式下可能一直等不到触发：强制抓一帧再检测
                 src = st.source
                 trig = str(getattr(src, "trigger", "") or "").lower()
+                got = False
                 if trig in ("hardware", "software") and hasattr(src, "grab_once"):
                     try:
-                        src.grab_once(1500)
+                        got = src.grab_once(1500) is not None
                     except Exception as exc:                # noqa: BLE001
                         self.statusBar().showMessage(f"强制取图失败：{exc}", 6000)
-                st.runner.step(force_detect=True, count=False)   # 出结果，但不计数（调试用）
+                has_frame = getattr(st.snapshot(), "last_frame", None) is not None
+                if has_frame:
+                    st.runner.step(force_detect=True, count=False)   # 出结果，但不计数
+                else:
+                    # 等不到触发信号也要出结果：拿屏幕上这一帧直接算
+                    cached = getattr(self, "_last_view_frame", None)
+                    if cached is not None and st.runner.run_frame(
+                            cached, force_detect=True, count=False):
+                        self.statusBar().showMessage("没有触发信号，已用当前画面检测一次", 4000)
+                    else:
+                        self.statusBar().showMessage("没有画面可检测：请先连相机或点【检测一次】", 5000)
         self._poll()
 
     def reset_stats(self) -> None:
@@ -2907,9 +2918,15 @@ class MainWindow(QMainWindow):
                 continue
             sub = img[y:y2, x:x2]
             gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
-            lo = int(it.params.get("threshold_low", 111) or 0)
-            hi = int(it.params.get("threshold_high", 255) or 255)
-            white = str(it.params.get("pick_zone", "白色中下")).startswith("白色")
+            if it.id == getattr(getattr(self, "_current_item")(), "id", None):
+                lo = int(self.sp_det_lo.value())          # 拖滑条时按当前值预览
+                hi = int(self.sp_det_hi.value())
+                zone_now = self.cb_pick_dir.currentText()
+            else:
+                lo = int(it.params.get("threshold_low", 111) or 0)
+                hi = int(it.params.get("threshold_high", 255) or 255)
+                zone_now = str(it.params.get("pick_zone", "白色中下"))
+            white = str(zone_now).startswith("白色")
             if white:
                 _, bw = cv2.threshold(gray, max(0, min(255, lo)), 255, cv2.THRESH_BINARY)
                 if hi < 255:

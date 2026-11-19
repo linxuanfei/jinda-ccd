@@ -52,7 +52,10 @@ class RoiItem(QGraphicsRectItem):
 
     def boundingRect(self):                      # noqa: N802
         r = super().boundingRect()
-        return r.adjusted(-3, -3, 3, 3)
+        _v = getattr(self, "_view", None)
+        z = max(0.05, float(_v.transform().m11() or 1.0)) if _v is not None else 1.0
+        up = max(34.0, 34.0 / z)                 # 序号画在框外左上角，要算进重绘区域
+        return r.adjusted(-up, -up, 4, 4)
 
     def paint(self, painter, option, widget=None) -> None:      # noqa: N802
         super().paint(painter, option, widget)
@@ -62,16 +65,21 @@ class RoiItem(QGraphicsRectItem):
         painter.save()
         font = painter.font()
         z = max(0.05, float(self._view.transform().m11() or 1.0))
-        font.setPixelSize(max(18, int(round(22 / z))))     # 屏幕上恒定 22px
+        # 屏幕上恒定 ~18px，但设上限：画面缩得很小时不至于变成巨大的字盖住图
+        font.setPixelSize(min(28, max(12, int(round(18 / z)))))
         font.setBold(True)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         tw = metrics.horizontalAdvance(self.label) + 8
         th = metrics.height() + 2
         bx = r.left() + 2
-        by = r.top() + 2          # 画在框内，保证一定看得见
+        by = r.top() - th - 3      # 序号放在框的左上角外侧，避免压住检测区域
+        if by < r.top() - th - 3:
+            by = r.top() - th - 3
+        if by < 0:                 # 框贴到画面顶边时退回框内
+            by = r.top() + 2
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 190))
+        painter.setBrush(QColor(0, 0, 0, 200))
         painter.drawRect(QRectF(bx, by, tw, th))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor(255, 220, 0), 1))
