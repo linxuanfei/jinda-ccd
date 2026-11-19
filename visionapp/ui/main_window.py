@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v60  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v61  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -815,6 +815,10 @@ class MainWindow(QMainWindow):
         rg.addWidget(btn_del_rule, 7, 2, 1, 2)
         self.lbl_rules = QLabel("规则：（空）")
         theme.set_class(self.lbl_rules, "hint")
+        _f = self.lbl_rules.font()
+        _f.setPixelSize(14)
+        self.lbl_rules.setFont(_f)
+        self.lbl_rules.setMinimumHeight(26)
         self.lbl_rules.setWordWrap(True)
         rg.addWidget(self.lbl_rules, 8, 0, 1, 4)
         self.cb_rule_kind.currentIndexChanged.connect(lambda _i: self._sync_rule_base_enabled())
@@ -1054,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v60  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v61  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1132,6 +1136,17 @@ class MainWindow(QMainWindow):
                     # 没在跑（硬件触发/停止）：显示原图，避免上一帧的红框被当成"野框"
                     if idx == self.active:
                         self._last_view_frame = raw
+                        _fw = int(getattr(raw, "shape", [0, 0])[1] or 0)
+                        if _fw and self.recipe.frame_width and _fw != self.recipe.frame_width:
+                            try:
+                                self.recipe.scale_to(_fw)
+                                self._sync_view()
+                                self.statusBar().showMessage(
+                                    f"画面宽度 {self.recipe.frame_width} → {_fw}，检测框已按比例缩放", 5000)
+                            except Exception:            # noqa: BLE001
+                                pass
+                        if _fw and not self.recipe.frame_width:
+                            self.recipe.frame_width = _fw
                     img = raw
                 else:
                     img = snap.last_annotated
@@ -3606,6 +3621,9 @@ class MainWindow(QMainWindow):
 
     def save_recipe(self) -> None:
         path = self.station.recipe_path or self._active_path
+        _fr = getattr(self, "_last_view_frame", None)
+        if _fr is not None and getattr(_fr, "shape", None):
+            self.recipe.frame_width = int(_fr.shape[1])   # 记住画框时的画面宽度
         if not path:
             self.save_recipe_as()
             return

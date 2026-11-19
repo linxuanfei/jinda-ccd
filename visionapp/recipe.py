@@ -27,6 +27,7 @@ class Recipe:
     detect_area: Rect | None = None            # 检测区域（黄色大框），检测框必须在其内
     locator: dict[str, Any] = field(default_factory=dict)  # 定位模板：{rect, path, score(1~99)}
     rules: list[dict] = field(default_factory=list)        # 规则设定
+    frame_width: int = 0                       # 画框时画面的宽度（分辨率变化时按比例缩放）
 
     # ---------------------------------------------------------------- 序列化
     @classmethod
@@ -54,6 +55,7 @@ class Recipe:
             detect_area=(Rect(*data["detect_area"]) if data.get("detect_area") else None),
             locator=dict(data.get("locator") or {}),
             calibration=Calibration.from_dict(data.get("calibration")),
+            frame_width=int(data.get("frame_width", 0) or 0),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,6 +68,7 @@ class Recipe:
             "detect_area": list(self.detect_area.as_tuple()) if self.detect_area else None,
             "locator": dict(self.locator or {}),
             "rules": list(self.rules or []),
+            "frame_width": int(self.frame_width or 0),
             "items": [
                 {
                     "id": it.id,
@@ -79,6 +82,35 @@ class Recipe:
                 for it in self.items
             ],
         }
+
+    def scale_to(self, width: int) -> bool:
+        """画面宽度变了（例如 2592 → 1600）：把所有框/线按比例缩放。返回是否缩放过。"""
+        width = int(width or 0)
+        if width <= 0 or not self.frame_width or self.frame_width == width:
+            return False
+        k = float(width) / float(self.frame_width)
+        if abs(k - 1.0) < 1e-6:
+            return False
+        for it in self.items:
+            roi = it.roi
+            if roi is None:
+                continue
+            if roi.is_line() and roi.line:
+                x1, y1, x2, y2 = roi.line
+                it.roi = Rect.from_line(x1 * k, y1 * k, x2 * k, y2 * k)
+            else:
+                it.roi = Rect(int(round(roi.x * k)), int(round(roi.y * k)),
+                              max(1, int(round(roi.w * k))), max(1, int(round(roi.h * k))))
+            if it.params.get("cells"):
+                it.params["cells"] = [[c[0] * k, c[1] * k, c[2] * k, c[3] * k]
+                                      for c in it.params["cells"]]
+        if self.detect_area is not None:
+            self.detect_area = Rect(int(round(self.detect_area.x * k)),
+                                    int(round(self.detect_area.y * k)),
+                                    max(1, int(round(self.detect_area.w * k))),
+                                    max(1, int(round(self.detect_area.h * k))))
+        self.frame_width = width
+        return True
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

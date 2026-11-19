@@ -361,10 +361,32 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
     for b in blobs:
         b.pick = sample_point(b.bbox, zone, pick_offset)
 
+    # 框内一个轮廓都没有（阈值把像素全滤掉了）：退回"按抓取方向找极值点"，
+    # 保证规则还能出数值；若轮廓存在、只是被圆度/面积条件筛掉，则保持 0 个不动。
+    if not blobs and not contours:
+        gray_roi = gray if gray is not None else None
+        if gray_roi is not None and gray_roi.size:
+            if str(zone).startswith("白色"):
+                iy, ix = np.unravel_index(int(np.argmax(gray_roi)), gray_roi.shape)
+            else:
+                iy, ix = np.unravel_index(int(np.argmin(gray_roi)), gray_roi.shape)
+            px, py = float(ix + ox), float(iy + oy)
+            blob = Blob(cx=px, cy=py, area=1.0, bbox=(int(px), int(py), 1, 1))
+            blob.pick = (px, py)
+            blobs.append(blob)
+            _fallback = True
+        else:
+            _fallback = False
+    else:
+        _fallback = False
+
     blobs.sort(key=lambda b: b.cx)
     res = ItemResult(item_id=item.id, type=item.type, blobs=blobs, value=float(len(blobs)), unit="个")
     res.ok = _apply_judge(item.judge, res.value)
-    res.message = f"找到 {len(blobs)} 个斑块"
+    _is_fb = _fallback or (len(blobs) == 1
+                           and float(getattr(blobs[0], "area", 0) or 0) <= 1.0)
+    res.message = (f"没找到斑块，按{zone}取极值点" if _is_fb
+                   else f"找到 {len(blobs)} 个斑块")
     color = (0, 255, 0) if res.ok is not False else (0, 0, 255)
     res.overlays = [{"kind": "box", "rect": b.bbox, "color": color} for b in blobs]
     # 画出抓取点（现场调"抓取位置"时靠它看对不对）
