@@ -384,7 +384,11 @@ class ImageView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         # 拖动时整屏刷新：否则序号/框会留下"虚影"残影
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
-        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        # 不开背景缓存：缓存会把旧像素留在框内，看起来像一块黑色阴影
+        try:
+            self.setCacheMode(QGraphicsView.CacheModeFlag(0))
+        except Exception:
+            pass
         self.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontSavePainterState, True)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QBrush(QColor(theme.color("bg.base"))))
@@ -735,8 +739,9 @@ class ImageView(QGraphicsView):
                 pass
         self._pick_items = []
         for ln in lines:
-            item = LineRoiItem("__pick__", ln, theme.color("state.ok"), self)
-            item.setZValue(8)
+            item = LineRoiItem("__pick__", ln, theme.color("accent.cyan"), self)
+            item.setZValue(9)
+            item.setPen(_pen(theme.color("accent.cyan"), 2))
             self._scene.addItem(item)
             self._pick_items.append(item)
 

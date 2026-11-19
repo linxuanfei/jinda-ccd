@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v56  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v57  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -818,6 +818,7 @@ class MainWindow(QMainWindow):
         self.lbl_rules.setWordWrap(True)
         rg.addWidget(self.lbl_rules, 8, 0, 1, 4)
         self.cb_rule_kind.currentIndexChanged.connect(lambda _i: self._sync_rule_base_enabled())
+        self.cb_pick_dir.currentTextChanged.connect(self._on_pick_dir_changed)
         rv.addWidget(self.box_rule)
         rv.removeWidget(self.box_rule)
         rv.insertWidget(1, self.box_rule)          # 紧跟【检测设置】
@@ -1053,7 +1054,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v56  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v57  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -2260,6 +2261,9 @@ class MainWindow(QMainWindow):
         self._building = False
         self._refresh_rule_preview()
         self._fill_editor()
+        _it = self._current_item()
+        if _it is not None:
+            self._fill_detect_settings(_it)          # 保证检测设置与当前项一致
 
     def _fill_editor(self) -> None:
         item = self._current_item()
@@ -2654,7 +2658,10 @@ class MainWindow(QMainWindow):
             pass
         zone = str(p.get("pick_zone", "白色中下"))
         idx = self.cb_pick_dir.findText(zone)
+        self.cb_pick_dir.blockSignals(True)
         self.cb_pick_dir.setCurrentIndex(idx if idx >= 0 else self.cb_pick_dir.findText("白色中下"))
+        self.cb_pick_dir.blockSignals(False)
+        item.params["pick_zone"] = self.cb_pick_dir.currentText()   # 界面=配方，避免显示不一致
         try:
             self._refresh_box_combos()
             self._refresh_rule_options()
@@ -2664,6 +2671,17 @@ class MainWindow(QMainWindow):
         # 记录"原阈值"，清屏时恢复
         self._th_snapshot = {"lo": lo, "hi": hi, "mode": str(p.get("threshold_mode", "dark")),
                              "item": item.id}
+
+    def _on_pick_dir_changed(self, text: str) -> None:
+        item = self._current_item()
+        if item is None or text in ("", "（不选）"):
+            return
+        item.params["pick_zone"] = text
+        try:
+            self._sync_pick_lines()
+        except Exception:                                # noqa: BLE001
+            pass
+        self._update_stats_dummy = None
 
     def _on_detect_flag(self, key: str, on: bool) -> None:
         item = self._current_item()
