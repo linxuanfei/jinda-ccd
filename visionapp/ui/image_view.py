@@ -762,6 +762,24 @@ class ImageView(QGraphicsView):
             self._scene.addItem(item)
             self._pick_items.append(item)
 
+    def set_pick_points(self, points: list) -> None:
+        """把检测出来的抓取中心点画成十字（品红），现场一眼看到抓到哪。"""
+        for old in getattr(self, "_pick_pts", []) or []:
+            try:
+                self._scene.removeItem(old)
+            except Exception:                            # noqa: BLE001
+                pass
+        self._pick_pts = []
+        for p in points or []:
+            ln_h = QLineF(p[0] - 12, p[1], p[0] + 12, p[1])
+            ln_v = QLineF(p[0], p[1] - 12, p[0], p[1] + 12)
+            for ln in (ln_h, ln_v):
+                it = LineRoiItem("__pt__", ln, theme.color("state.ng"), self)
+                it.setZValue(11)
+                it.setPen(_pen(theme.color("state.ng"), 1))
+                self._scene.addItem(it)
+                self._pick_pts.append(it)
+
     def set_cells(self, item_id: str, rects: list, parent_no: int = 1) -> None:
         rects = []          # 主画面不画小框（避免看起来像杂线），小框在检测框设置里看
         """显示某个检测项分割出来的小框（每个都能单独拖动/缩放）。"""

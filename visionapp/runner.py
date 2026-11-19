@@ -210,6 +210,16 @@ class Runner:
         """同步处理一帧（界面【检测一次】按钮、测试用）。count=False 只出结果不计数。"""
         return self._process_once(force_detect=force_detect, count=count)
 
+    def publish(self, result, annotated, image=None) -> None:
+        """把一次检测结果发布给界面（同步执行用）。"""
+        with self._lock:
+            self._last_result = result.as_dict() if hasattr(result, "as_dict") else dict(result)
+            self._last_annotated = annotated
+            if image is not None:
+                self._last_raw = image
+            self._seq += 1
+            self._last_error = ""
+
     def run_frame(self, image, force_detect: bool = True, count: bool = False) -> bool:
         """用给定的一帧（numpy BGR）直接跑流水线：硬件触发等不到图时兜底用。"""
         import time

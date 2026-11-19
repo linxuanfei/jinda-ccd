@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v63  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v64  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1058,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v63  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v64  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1083,33 +1083,72 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已停止")
 
     def step_once(self) -> None:
+        """检测一次：同步跑一遍流水线，结果直接进表并显示标注图（不依赖采集线程）。"""
         if self.manager.running():
             return
+        shown = 0
         for st in self.manager.stations:
-            if st.cfg.enabled and st.source is not None:
-                st.open_recorder()
-                st.open_outputs()
-                # 硬件/软触发模式下可能一直等不到触发：强制抓一帧再检测
-                src = st.source
-                trig = str(getattr(src, "trigger", "") or "").lower()
-                got = False
-                if trig in ("hardware", "software") and hasattr(src, "grab_once"):
-                    try:
-                        got = src.grab_once(1500) is not None
-                    except Exception as exc:                # noqa: BLE001
-                        self.statusBar().showMessage(f"强制取图失败：{exc}", 6000)
-                has_frame = getattr(st.snapshot(), "last_frame", None) is not None
-                if has_frame:
-                    st.runner.step(force_detect=True, count=False)   # 出结果，但不计数
-                else:
-                    # 等不到触发信号也要出结果：拿屏幕上这一帧直接算
-                    cached = getattr(self, "_last_view_frame", None)
-                    if cached is not None and st.runner.run_frame(
-                            cached, force_detect=True, count=False):
-                        self.statusBar().showMessage("没有触发信号，已用当前画面检测一次", 4000)
-                    else:
-                        self.statusBar().showMessage("没有画面可检测：请先连相机或点【检测一次】", 5000)
+            if not (st.cfg.enabled and st.source is not None):
+                continue
+            st.open_recorder()
+            st.open_outputs()
+            # 硬件/软触发模式下可能一直等不到触发：先强制抓一帧
+            src = st.source
+            trig = str(getattr(src, "trigger", "") or "").lower()
+            if trig in ("hardware", "software") and hasattr(src, "grab_once"):
+                try:
+                    src.grab_once(1500)
+                except Exception as exc:                # noqa: BLE001
+                    self.statusBar().showMessage(f"强制取图失败：{exc}", 6000)
+            frame = getattr(st.snapshot(), "last_frame", None)
+            if frame is None:
+                try:
+                    frame = self.tiles[self.active].view.frame_bgr()
+                except Exception:                        # noqa: BLE001
+                    frame = None
+            if frame is None:
+                frame = getattr(self, "_last_view_frame", None)
+            if frame is None:
+                self.statusBar().showMessage("没有画面可检测：请先连相机出图", 5000)
+                continue
+            base = frame.bgr if hasattr(frame, "bgr") else frame
+            pipe = st.pipeline
+            if pipe is None:
+                self.statusBar().showMessage("流水线未就绪", 4000)
+                continue
+            try:
+                result, annotated = pipe.run(Frame.create(base), annotate=True)
+            except Exception as exc:                    # noqa: BLE001
+                self._log_crash("检测一次", exc)
+                continue
+            st.runner.publish(result, annotated, base)
+            self._last_view_frame = base
+            self.tiles[self.active].view.set_frame(annotated)
+            self._fill_result_table(result.as_dict())
+            self._show_pick_points(result)
+            self._preview_until = time.time() + 3.0     # 3 秒内别被原始帧盖掉标注
+            shown += 1
+        if shown:
+            self.statusBar().showMessage(f"检测一次完成：{shown} 个机位出结果", 4000)
         self._poll()
+
+    def _show_pick_points(self, result) -> None:
+        """把本次检测的抓取中心点画到画面上（品红十字）。"""
+        pts = []
+        try:
+            for res in (result.results or {}).values():
+                for b in getattr(res, "blobs", []) or []:
+                    pick = getattr(b, "pick", None)
+                    if pick is None:
+                        pick = (getattr(b, "cx", None), getattr(b, "cy", None))
+                    if pick[0] is None or pick[1] is None:
+                        continue
+                    pts.append((float(pick[0]), float(pick[1])))
+            self.tiles[self.active].view.set_pick_points(pts)
+            if pts:
+                self.statusBar().showMessage(f"抓取中心 {len(pts)} 个（品红十字）", 4000)
+        except Exception:                                # noqa: BLE001
+            pass
 
     def reset_stats(self) -> None:
         for st in self.manager.stations:
@@ -2753,6 +2792,10 @@ class MainWindow(QMainWindow):
             elif "右侧" in zone:
                 xx = x + w - 1
                 lines.append(QLineF(xx, y, xx, y + h))
+            # 抓取方向里带"中"：再画一条竖直中心线（现场要能看到十字）
+            if "中" in zone and ("上" in zone or "下" in zone):
+                xx = x + w // 2
+                lines.append(QLineF(xx, y, xx, y + h))
         self.view.set_pick_lines(lines)
 
     def _refresh_box_combos(self) -> None:
@@ -3036,6 +3079,12 @@ class MainWindow(QMainWindow):
         hi = int(self.sp_det_hi.value())
         if lo > hi:
             lo, hi = hi, lo
+            self.sp_det_lo.blockSignals(True)
+            self.sp_det_hi.blockSignals(True)
+            self.sp_det_lo.setValue(lo)
+            self.sp_det_hi.setValue(hi)
+            self.sp_det_lo.blockSignals(False)
+            self.sp_det_hi.blockSignals(False)
         zone = self.cb_pick_dir.currentText()
         zone_key = {"白色中上": "白色中上", "白色中下": "白色中下", "黑色中上": "黑色中上",
                     "黑色中下": "黑色中下", "白色顶部": "白色顶部", "白色底部": "白色底部",
