@@ -388,7 +388,9 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
     res.message = (f"没找到斑块，按{zone}取极值点" if _is_fb
                    else f"找到 {len(blobs)} 个斑块")
     color = (0, 255, 0) if res.ok is not False else (0, 0, 255)
-    res.overlays = [{"kind": "box", "rect": b.bbox, "color": color} for b in blobs]
+    # 太小的斑块（噪声/单像素）不画外框，避免画面上出现莫名其妙的绿点
+    res.overlays = [{"kind": "box", "rect": b.bbox, "color": color}
+                    for b in blobs if b.bbox[2] >= 5 and b.bbox[3] >= 5]
     # 画出抓取点（现场调"抓取位置"时靠它看对不对）
     if str(p.get("show_pick", "off")).lower() in ("on", "1", "true", "yes"):
         for b in blobs:

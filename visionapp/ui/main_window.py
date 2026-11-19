@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v69  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v70  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -820,7 +820,7 @@ class MainWindow(QMainWindow):
         self.lbl_rules = QLabel("规则：（空）")
         theme.set_class(self.lbl_rules, "hint")
         _f = self.lbl_rules.font()
-        _f.setPixelSize(14)
+        _f.setPixelSize(16)
         self.lbl_rules.setFont(_f)
         self.lbl_rules.setMinimumHeight(26)
         self.lbl_rules.setWordWrap(True)
@@ -923,7 +923,9 @@ class MainWindow(QMainWindow):
         _f = self.tbl.font()
         _f.setPixelSize(13)
         self.tbl.setFont(_f)
-        self.tbl.horizontalHeader().setDefaultSectionSize(92)
+        self.tbl.horizontalHeader().setDefaultSectionSize(96)
+        for _c, _w in enumerate((110, 64, 64, 168, 84, 74)):
+            self.tbl.setColumnWidth(_c, _w)
         self.tbl.verticalHeader().setDefaultSectionSize(30)
         self.tbl.horizontalHeader().setStretchLastSection(True)
         rl.addWidget(self.tbl)
@@ -1069,7 +1071,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v69  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v70  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1464,7 +1466,7 @@ class MainWindow(QMainWindow):
             for c, txt in enumerate((note, obj, base, design, value, verdict)):
                 cell = QTableWidgetItem(txt)
                 if c in (4, 5):
-                    _ff = theme.mono_font(13)
+                    _ff = theme.mono_font(14 if c == 5 else 13)
                     _ff.setBold(c == 5)
                     cell.setFont(_ff)
                 if c == 5:
@@ -1517,7 +1519,8 @@ class MainWindow(QMainWindow):
                     res = items.get(f"rule{i}") or {}
                     seq += 1
                     val = res.get("value")
-                    add_row(note, f"{fno}→{tno}", base, design,
+                    _obj = f"{fno}" if fno == tno else f"{fno}→{tno}"
+                    add_row(note, _obj, base, design,
                             "-" if val is None else f"{float(val):.3f}",
                             {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-"),
                             res.get("ok"), str(seq))
@@ -2815,6 +2818,18 @@ class MainWindow(QMainWindow):
         item.params["pick_zone"] = self.cb_pick_dir.currentText()   # 界面=配方，避免显示不一致
         try:
             self._refresh_box_combos()
+            if item.roi is not None and not item.roi.is_line():
+                _n = 0
+                for _it in self.recipe.items:
+                    if _it.roi is None or _it.roi.is_line():
+                        continue
+                    _n += 1
+                    if _it.id == item.id:
+                        for _cb in (self.cb_det_from, self.cb_det_to):
+                            _i = _cb.findData(_n)
+                            if _i >= 0:
+                                _cb.setCurrentIndex(_i)
+                        break
             self._refresh_rule_options()
             self._sync_rule_base_enabled()
         except Exception:                                # noqa: BLE001
@@ -3074,6 +3089,8 @@ class MainWindow(QMainWindow):
         n = 0
         _tinted = 0
         _outside = 0
+        lo = int(self.sp_det_lo.value())
+        hi = int(self.sp_det_hi.value())
         for it in self.recipe.items:
             roi = it.roi
             if roi is None or roi.is_line() or it.type not in ("find_blobs", ""):
@@ -3087,7 +3104,7 @@ class MainWindow(QMainWindow):
             gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
             _cur = self._current_item()
             try:
-                _no = int(str(self._box_no(it.id)).lstrip("L"))
+                _no = int(str(self._box_no(it)).lstrip("L"))
             except Exception:                            # noqa: BLE001
                 _no = 0
             if _lo_no and _hi_no:
@@ -3112,6 +3129,12 @@ class MainWindow(QMainWindow):
             if mask.any():
                 _tinted += int(mask.sum())
                 sub[mask] = (sub[mask] * 0.45 + np.array([0, 0, 255]) * 0.55).astype(np.uint8)
+            else:
+                # 阈值把整框都选中了：给选中区加一层淡绿，拖动时能看出变化
+                sel = bw > 0
+                if sel.any():
+                    _tinted += int(sel.sum())
+                    sub[sel] = (sub[sel] * 0.72 + np.array([0, 160, 0]) * 0.28).astype(np.uint8)
             cnts, _ = cv2.findContours(bw, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts:
                 if cv2.contourArea(c) < 3:
@@ -3126,13 +3149,14 @@ class MainWindow(QMainWindow):
                            f" 阈值={lo}~{hi} 范围={_lo_no}~{_hi_no}")
         except Exception:                            # noqa: BLE001
             pass
-        if n == 0:
+        if n == 0 and _tinted == 0:
             self.statusBar().showMessage(
                 f"没有可预览的像素：画面 {base.shape[1]}x{base.shape[0]}，阈值 {lo}~{hi}"
                 f"（框={len(self.recipe.items)}）", 6000)
             return
         self.view.set_frame(img)
-        self.statusBar().showMessage(f"阈值预览：选中 {n} 个连通域（红色=选中像素）", 4000)
+        self.statusBar().showMessage(
+            f"阈值预览：连通域 {n} 个，红色 {_tinted} 像素（红=被排除）", 4000)
 
     def _clear_detect_threshold(self) -> None:
         """清屏：把阈值恢复成选中这一项时的原始值（拉错了用）。"""
