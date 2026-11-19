@@ -291,6 +291,17 @@ def find_blobs(frame: Frame, item: Item, ctx: dict[str, ItemResult]) -> ItemResu
         item.roi = _Rect(0, 0, 1, 1)          # 占位，下面逐格处理
         return _grid_find(frame, item, p, x0, y0, cw, ch, cols, rows)
 
+    _fh, _fw = frame.bgr.shape[:2]
+    _r = item.roi
+    if _r is None:                       # 没画框：按整幅画面处理（旧配方/单测兼容）
+        _r = Rect(0, 0, _fw, _fh)
+        item.roi = _r
+    if (_r.x >= _fw or _r.y >= _fh
+            or _r.x + _r.w <= 0 or _r.y + _r.h <= 0):
+        res = ItemResult(item_id=item.id, type=item.type, value=0.0, unit="个")
+        res.ok = None
+        res.message = f"框在画面外（框 {_r.x},{_r.y} {_r.w}x{_r.h} / 画面 {_fw}x{_fh}）"
+        return res
     img, ox, oy = _crop(frame, item.roi)
     gray = _to_gray(img)
     if p.get("blur", 0):

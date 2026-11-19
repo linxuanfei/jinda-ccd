@@ -889,6 +889,11 @@ class MindVisionSource(FrameSource):
         self._sdk_path = sdk_path or ""
         self._handle: int | None = None
         self._pending = None
+        self._latest = None                 # 后台线程保留的最新帧（BGR）
+        self._latest_seq = 0
+        self._grab_thread = None
+        self._grabbing = False
+        self._grab_lock = None
         self._backend_kind = getattr(sdk, "kind", "") if sdk is not None else ""
         self._name = name or f"mindvision:{self.model or 'camera'}"
         self._info = SourceInfo(name=self._name, width=0, height=0,
@@ -934,7 +939,46 @@ class MindVisionSource(FrameSource):
             self._pending = head
             self._info.width = int(head.shape[1])
             self._info.height = int(head.shape[0])
+        self._start_background_grab()
         return None
+
+    def _start_background_grab(self) -> None:
+        """硬件/软触发：后台持续取图，保证"不点开始"也能收到触发帧。"""
+        import threading
+        if self._grab_thread is not None or self.trigger not in ("hardware", "software"):
+            return
+        self._grab_lock = threading.Lock()
+        self._grabbing = True
+
+        def _loop() -> None:
+            while self._grabbing and self._handle is not None:
+                try:
+                    img = self._sdk.grab(self._handle, 200)
+                except Exception:                        # noqa: BLE001
+                    img = None
+                if img is None:
+                    continue
+                if self.max_width and img.shape[1] > self.max_width:
+                    sc = float(self.max_width) / float(img.shape[1])
+                    img = cv2.resize(img, (self.max_width, int(round(img.shape[0] * sc))),
+                                     interpolation=cv2.INTER_AREA)
+                with self._grab_lock:
+                    self._latest = img
+                    self._latest_seq += 1
+                    self._info.width = int(img.shape[1])
+                    self._info.height = int(img.shape[0])
+
+        t = threading.Thread(target=_loop, name="mv-grabber", daemon=True)
+        t.start()
+        self._grab_thread = t
+
+    def latest(self):
+        """取后台保留的最新一帧（不发新请求，立即返回）。"""
+        with (self._grab_lock or __import__("threading").Lock()):
+            return self._latest
+
+    def latest_seq(self) -> int:
+        return int(self._latest_seq)
 
     def _push(self) -> None:
         # 自动曝光开着的话，手动设曝光是无效的（现场反馈"改了没反应"就是这个）
@@ -974,6 +1018,8 @@ class MindVisionSource(FrameSource):
         image = self._pending
         self._pending = None
         if image is None:
+            image = self.latest()
+        if image is None:
             image = self._sdk.grab(self._handle, int(timeout_ms))
         if image is None:
             return None
@@ -1011,6 +1057,8 @@ class MindVisionSource(FrameSource):
         return img
 
     def close(self) -> None:
+        self._grabbing = False
+        self._grab_thread = None
         if self._handle is not None and self._sdk is not None:
             try:
                 self._sdk.close(self._handle)

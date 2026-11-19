@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v71  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v72  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -570,14 +570,17 @@ class MainWindow(QMainWindow):
             "勾上：每帧都检测并计数\n取消：只显示画面不检测（调机看画面用），要看结果点【单帧】")
         self.act_auto.toggled.connect(self._on_auto_detect_toggled)
         tb3.addAction(self.act_auto)
-        a_start = act2(" ▶ 开始 ", self.start_run)
-        a_start.setShortcut("F5")
-        a_start.setToolTip("开始 (F5)")
-        tb3.widgetForAction(a_start).setObjectName("btnStart")
-        a_stop = act2(" ■ 停止 ", self.stop_run)
-        a_stop.setShortcut("F6")
-        a_stop.setToolTip("停止 (F6)")
-        tb3.widgetForAction(a_stop).setObjectName("btnStop")
+        self.lbl_run_state = QLabel("○ 已停止")
+        self.lbl_run_state.setStyleSheet("color:#8fa3b8;font-weight:bold;padding:0 8px;")
+        tb3.addWidget(self.lbl_run_state)
+        self.act_start_btn = act2(" ▶ 开始 ", self.start_run)
+        self.act_start_btn.setShortcut("F5")
+        self.act_start_btn.setToolTip("开始 (F5)")
+        tb3.widgetForAction(self.act_start_btn).setObjectName("btnStart")
+        self.act_stop_btn = act2(" ■ 停止 ", self.stop_run)
+        self.act_stop_btn.setShortcut("F6")
+        self.act_stop_btn.setToolTip("停止 (F6)")
+        tb3.widgetForAction(self.act_stop_btn).setObjectName("btnStop")
         a_step = act2(" 检测一次 ", self.step_once)
         a_step.setShortcut("F7")
         a_step.setToolTip("检测一次 (F7)：不管有没有开自动检测，都立刻取一帧并检测一次（硬件触发没信号也能用）")
@@ -1072,12 +1075,25 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v71  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v72  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
 
     # ------------------------------------------------------------------ 运行
+    def _update_run_buttons(self) -> None:
+        """开始/停止按钮 + 状态灯：一眼看出当前是运行还是停止。"""
+        running = bool(self.manager.running())
+        try:
+            self.act_start_btn.setEnabled(not running)
+            self.act_stop_btn.setEnabled(running)
+            self.lbl_run_state.setText("● 运行中" if running else "○ 已停止")
+            self.lbl_run_state.setStyleSheet(
+                "color:%s;font-weight:bold;padding:0 8px;"
+                % ("#22c55e" if running else "#8fa3b8"))
+        except Exception:                                # noqa: BLE001
+            pass
+
     def start_run(self) -> None:
         for _st in self.manager.stations:
             _st.runner.set_auto_detect(bool(getattr(self, "act_auto", None) and self.act_auto.isChecked()))
@@ -1088,10 +1104,12 @@ class MainWindow(QMainWindow):
             return
         self.merged_alarm.cfg = AlarmConfig.from_dict(self.settings.alarm_cfg)
         self.manager.start_all(self.cb_mode.currentData())
-        self.statusBar().showMessage("开始运行（整线）")
+        self._update_run_buttons()
+        self.statusBar().showMessage("● 已开始运行（整线）")
 
     def stop_run(self) -> None:
         self.manager.stop_all()
+        self._update_run_buttons()
         self.statusBar().showMessage("已停止（实时画面仍保留为预览）", 4000)
         QTimer.singleShot(200, self._ensure_preview)
         self.statusBar().showMessage("已停止")
@@ -1200,8 +1218,16 @@ class MainWindow(QMainWindow):
                         self._raw_frame = raw            # 检测/预览永远用这张原图
                         _fw = int(getattr(raw, "shape", [0, 0])[1] or 0)
                         _rw = int(self.recipe.frame_width or 0)
+                        _max_r = 0
+                        for _it in self.recipe.items:
+                            if _it.roi is not None and not _it.roi.is_line():
+                                _max_r = max(_max_r, int(_it.roi.x + _it.roi.w))
+                        if _max_r and _max_r > _fw * 1.05:
+                            # 框画在更大的画面上（例如 2592 宽模板拿到 1600 帧）：
+                            # 按"最大框右边界"当原始宽度，整体缩到当前画面
+                            self.recipe.frame_width = _max_r
                         _big = _rw and abs(_fw - _rw) / float(_rw) > 0.2
-                        if _fw and _big:
+                        if _fw and (_big or (_max_r and _max_r > _fw * 1.05)):
                             try:
                                 self.recipe.scale_to(_fw)
                                 self._diag(f"缩放配方：{self.recipe.frame_width} ← frame {_fw}")
@@ -1220,6 +1246,19 @@ class MainWindow(QMainWindow):
                     sc = float(limit) / img.shape[1]
                     img = cv2.resize(img, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA)
                 tile.view.set_frame(img)
+            if not st.runner.running and st.source is not None:
+                try:
+                    _latest = getattr(st.source, "latest", lambda: None)()
+                except Exception:                        # noqa: BLE001
+                    _latest = None
+                if _latest is not None and draw_budget:
+                    _ls = int(getattr(st.source, "latest_seq", lambda: 0)() or 0)
+                    if _seqs.get(("idle", idx)) != _ls:
+                        _seqs[("idle", idx)] = _ls
+                        self._raw_frame = _latest
+                        if idx == self.active:
+                            self._last_view_frame = _latest
+                        tile.view.set_frame(_latest)
             _res = snap.last_result
             if _res and st.runner.running:
                 try:
