@@ -164,9 +164,8 @@ class RoiItem(QGraphicsRectItem):
         else:
             delta = event.pos() - self._start_pos
         r = QRectF(self._start_rect)
-        z = max(0.05, float(self._view.transform().m11() or 1.0))
         if self._drag_mode == "move":
-            r.translate(delta / z)
+            r.translate(delta)
         else:
             if self._drag_mode in ("tl", "bl"):
                 r.setLeft(min(self._start_rect.left() + delta.x(), self._start_rect.right() - 5))
@@ -330,8 +329,7 @@ class LineRoiItem(QGraphicsLineItem):
         delta = (event.scenePos() - start_scene) if start_scene is not None else (pos - self._start_pos)
         ln = QLineF(self._start_line)
         if self._mode == "move":
-            z = max(0.05, float(self._view.transform().m11() or 1.0))
-            ln.translate(delta / z)
+            ln.translate(delta)
         else:
             if self._mode == "p1":
                 ln.setP1(pos)
@@ -1089,9 +1087,6 @@ class ImageView(QGraphicsView):
             cur = self.mapToScene(event.pos())
             delta_total_x = cur.x() - self._drag_origin.x()
             delta_total_y = cur.y() - self._drag_origin.y()
-            _z = max(0.05, float(self.transform().m11() or 1.0))
-            delta_total_x /= _z
-            delta_total_y /= _z
             for k in (self._drag_item_keys or [self._drag_item_key]):
                 it = self._rois.get(k)
                 start = self._drag_start_rects.get(k)

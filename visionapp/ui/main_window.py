@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v68  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v69  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -775,7 +775,7 @@ class MainWindow(QMainWindow):
         self.ck_rule_inc = QCheckBox("自增")
         self.ck_rule_inc.setChecked(False)              # 默认不勾，需要时手动勾
         self.ck_rule_inc.setToolTip("勾上后：每添加一条规则，起始框/结束框各 +1（X 方向时基准也 +1）")
-        rg.addWidget(self.ck_rule_inc, 1, 3)
+        rg.addWidget(self.ck_rule_inc, 0, 4)
 
         # 检测方式单独一行（在基准框上面，不与基准框并排）
         rg.addWidget(QLabel("检测方式"), 1, 0)
@@ -918,7 +918,13 @@ class MainWindow(QMainWindow):
         rl = QVBoxLayout(box_res)
         self.tbl = QTableWidget(0, 6)
         self.tbl.setHorizontalHeaderLabels(
-            ["备注", "对象", "基准", "设计值", "实测", "判定"])
+            ["备注", "对象", "基准", "设计值", "实测", "判定结果"])
+        self.tbl.setWordWrap(False)
+        _f = self.tbl.font()
+        _f.setPixelSize(13)
+        self.tbl.setFont(_f)
+        self.tbl.horizontalHeader().setDefaultSectionSize(92)
+        self.tbl.verticalHeader().setDefaultSectionSize(30)
         self.tbl.horizontalHeader().setStretchLastSection(True)
         rl.addWidget(self.tbl)
         rv.addWidget(box_res, 1)
@@ -1063,7 +1069,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v68  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v69  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1446,6 +1452,7 @@ class MainWindow(QMainWindow):
             cell.setForeground(QColor(theme.color("accent.cyan")))
             self.tbl.setItem(r, 0, cell)
             try:
+                self.tbl.setVerticalHeaderItem(r, QTableWidgetItem(""))
                 self.tbl.setSpan(r, 0, 1, 6)
             except Exception:                            # noqa: BLE001
                 pass
@@ -1457,7 +1464,9 @@ class MainWindow(QMainWindow):
             for c, txt in enumerate((note, obj, base, design, value, verdict)):
                 cell = QTableWidgetItem(txt)
                 if c in (4, 5):
-                    cell.setFont(theme.mono_font(12))
+                    _ff = theme.mono_font(13)
+                    _ff.setBold(c == 5)
+                    cell.setFont(_ff)
                 if c == 5:
                     cell.setForeground(QColor(
                         theme.color("state.ok") if ok is True else
@@ -3081,10 +3090,9 @@ class MainWindow(QMainWindow):
                 _no = int(str(self._box_no(it.id)).lstrip("L"))
             except Exception:                            # noqa: BLE001
                 _no = 0
-            _multi = bool(_lo_no and _hi_no and _hi_no > _lo_no)
-            if _multi:
+            if _lo_no and _hi_no:
                 if not (_lo_no <= _no <= _hi_no):
-                    continue                               # 选了范围：整段一起调
+                    continue                               # 选了范围：范围内一起调
             elif _cur is not None and it.id != _cur.id:
                 continue                                   # 没选范围：只调当前框
             lo = int(self.sp_det_lo.value())
