@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v67  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v68  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -772,6 +772,10 @@ class MainWindow(QMainWindow):
         rg.addWidget(QLabel("结束框"), 0, 2)
         self.cb_rule_to = QComboBox()
         rg.addWidget(self.cb_rule_to, 0, 3)
+        self.ck_rule_inc = QCheckBox("自增")
+        self.ck_rule_inc.setChecked(False)              # 默认不勾，需要时手动勾
+        self.ck_rule_inc.setToolTip("勾上后：每添加一条规则，起始框/结束框各 +1（X 方向时基准也 +1）")
+        rg.addWidget(self.ck_rule_inc, 1, 3)
 
         # 检测方式单独一行（在基准框上面，不与基准框并排）
         rg.addWidget(QLabel("检测方式"), 1, 0)
@@ -1059,7 +1063,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v67  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v68  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1421,7 +1425,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _fill_result_table(self, data: dict[str, Any]) -> None:
-        """检测结果：备注 | 对象 | 基准 | 设计值 | 实测 | 判定，并按 X/Y 方向分组。"""
+        """检测结果：备注 | 对象 | 基准 | 设计值 | 实测 | 判定结果，按 X/Y 分组。"""
         items = (data or {}).get("items") or {}
         rules = list(self.recipe.rules or [])
         known = ("x", "y", "waviness", "area", "baseline")
@@ -1429,26 +1433,25 @@ class MainWindow(QMainWindow):
                   ("waviness", "参差度"), ("area", "面积"), ("baseline", "基准线"),
                   (None, "其它")]
         self.tbl.setRowCount(0)
-        hdr = self.tbl.horizontalHeaderItem(5)
-        if hdr is not None:
-            hdr.setText("判定结果")
+        self.tbl.setVerticalHeaderLabels([])
 
-        def add_header(text: str) -> None:
+        def add_header(title: str) -> None:
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
-            cell = QTableWidgetItem(text)
+            cell = QTableWidgetItem(title)
             f = cell.font()
             f.setBold(True)
             f.setPixelSize(13)
             cell.setFont(f)
             cell.setForeground(QColor(theme.color("accent.cyan")))
-            cell.setBackground(QColor(theme.color("bg.panel")))
             self.tbl.setItem(r, 0, cell)
-            span = getattr(self.tbl, "setSpan", None)
-            self.tbl.setSpan(r, 0, 1, 6) if span is not None else None
+            try:
+                self.tbl.setSpan(r, 0, 1, 6)
+            except Exception:                            # noqa: BLE001
+                pass
 
         def add_row(note: str, obj: str, base: str, design: str,
-                    value: str, verdict: str, ok) -> None:
+                    value: str, verdict: str, ok, seq: str = "") -> None:
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
             for c, txt in enumerate((note, obj, base, design, value, verdict)):
@@ -1460,20 +1463,17 @@ class MainWindow(QMainWindow):
                         theme.color("state.ok") if ok is True else
                         (theme.color("state.ng") if ok is False else theme.color("text.muted"))))
                 self.tbl.setItem(r, c, cell)
+            if seq:
+                hi = self.tbl.verticalHeaderItem(r)
+                if hi is None:
+                    self.tbl.setVerticalHeaderItem(r, QTableWidgetItem(seq))
+                else:
+                    hi.setText(seq)
 
         if not rules:
-            for k, v in items.items():
-                if str(k).startswith("__"):
-                    continue
-                add_row("", str(k), "-", "-",
-                        "-" if v.get("value") is None else f"{v['value']:.3f}",
-                        {True: "OK", False: "NG", None: "-"}.get(v.get("ok"), "-"), v.get("ok"))
-            return
+            return                                       # 新建模板：结果表保持空白
 
-        try:
-            self.tbl.resizeColumnsToContents()
-        except Exception:                                # noqa: BLE001
-            pass
+        seq = 0
         for kind, title in groups:
             if kind is None:
                 idxs = [i for i, r in enumerate(rules, 1) if r.get("kind") not in known]
@@ -1484,20 +1484,34 @@ class MainWindow(QMainWindow):
             add_header(title)
             for i in idxs:
                 rule = rules[i - 1]
-                res = items.get(f"rule{i}") or {}
-                val = res.get("value")
-                note = str(rule.get("note") or "")
-                obj = f"{rule.get('from_no')}→{rule.get('to_no')}"
                 base = str(rule.get("base") or "-")
+                note = str(rule.get("note") or "")
                 try:
                     design = (f"{float(rule.get('target', 0) or 0):g}"
                               f" (+{float(rule.get('tol_up', 0) or 0):g}/"
                               f"{float(rule.get('tol_lo', 0) or 0):g})")
                 except Exception:                        # noqa: BLE001
                     design = "-"
-                disp = "-" if val is None else f"{float(val):.3f}"
-                verdict = {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-")
-                add_row(note, obj, base, design, disp, verdict, res.get("ok"))
+                fno = int(rule.get("from_no", 0) or 0)
+                tno = int(rule.get("to_no", 0) or 0)
+                k = str(rule.get("kind") or "")
+                if k in ("x", "y") and base.upper().startswith("L"):
+                    for no in range(min(fno, tno), max(fno, tno) + 1):
+                        res = items.get(f"rule{i}_{no}") or {}
+                        seq += 1
+                        val = res.get("value")
+                        add_row(note, f"{no}", base, design,
+                                "-" if val is None else f"{float(val):.3f}",
+                                {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-"),
+                                res.get("ok"), str(seq))
+                else:
+                    res = items.get(f"rule{i}") or {}
+                    seq += 1
+                    val = res.get("value")
+                    add_row(note, f"{fno}→{tno}", base, design,
+                            "-" if val is None else f"{float(val):.3f}",
+                            {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-"),
+                            res.get("ok"), str(seq))
 
     def open_source_dialog(self) -> None:
         """换相机。
@@ -2940,6 +2954,19 @@ class MainWindow(QMainWindow):
             "tol_lo": float(self.sp_rule_tol_lo.value()),
             "note": self.ed_rule_note.text().strip(),
         })
+        if getattr(self, "ck_rule_inc", None) is not None and self.ck_rule_inc.isChecked():
+            _next_from = fno + 1
+            _next_to = tno + 1
+            for _cb, _val in ((self.cb_rule_from, _next_from), (self.cb_rule_to, _next_to)):
+                _i = _cb.findData(_val)
+                if _i >= 0:
+                    _cb.setCurrentIndex(_i)
+            if kind == "x":
+                _b = self.cb_rule_base.currentData() or ""
+                if str(_b).isdigit():
+                    _i = self.cb_rule_base.findData(str(int(_b) + 1))
+                    if _i >= 0:
+                        self.cb_rule_base.setCurrentIndex(_i)
         self._refresh_rules_label()
         self._refresh_still()
         self.statusBar().showMessage("规则已添加（结果见【检测结果】）", 5000)
@@ -3050,8 +3077,16 @@ class MainWindow(QMainWindow):
             sub = img[y:y2, x:x2]
             gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
             _cur = self._current_item()
-            if _cur is not None and it.id != _cur.id:
-                continue                                   # 只预览当前选中的这个框
+            try:
+                _no = int(str(self._box_no(it.id)).lstrip("L"))
+            except Exception:                            # noqa: BLE001
+                _no = 0
+            _multi = bool(_lo_no and _hi_no and _hi_no > _lo_no)
+            if _multi:
+                if not (_lo_no <= _no <= _hi_no):
+                    continue                               # 选了范围：整段一起调
+            elif _cur is not None and it.id != _cur.id:
+                continue                                   # 没选范围：只调当前框
             lo = int(self.sp_det_lo.value())
             hi = int(self.sp_det_hi.value())
             zone_now = self.cb_pick_dir.currentText()

@@ -244,6 +244,52 @@ class Pipeline:
                 continue
 
             if kind in ("x", "y"):
+                base = str(rule.get("base") or "")
+                if base.upper().startswith("L"):
+                    # 基准是一条直线：范围内每个框分别量到这条线的距离
+                    lines = [it for it in self.recipe.items
+                             if it.roi is not None and it.roi.is_line()]
+                    ln_no = 0
+                    try:
+                        ln_no = int(base[1:])
+                    except Exception:                    # noqa: BLE001
+                        ln_no = 0
+                    ln = lines[ln_no - 1].roi if 0 < ln_no <= len(lines) else None
+                    if ln is None or not ln.line:
+                        ctx[rid] = ItemResult(rid, "rule", ok=False,
+                                              message=f"基准直线 {base} 不存在")
+                        continue
+                    x1, y1, x2, y2 = ln.line
+                    any_ok = False
+                    for no in range(min(fno, tno), max(fno, tno) + 1):
+                        it = bmap.get(no)
+                        if it is None:
+                            continue
+                        p = self._pick_xy(ctx.get(it.id))
+                        if p is None:
+                            r_id = f"{rid}_{no}"
+                            ctx[r_id] = ItemResult(r_id, "rule", ok=False,
+                                                   message=f"框{no} 内没抓到斑块")
+                            all_ok = False
+                            continue
+                        if kind == "y":
+                            raw = p[1] - (y1 + y2) / 2.0
+                        else:
+                            raw = p[0] - (x1 + x2) / 2.0
+                        val = abs(raw) if rule.get("abs", True) else raw
+                        ok, why = self._judge_rule(rule, val)
+                        if ok is False:
+                            all_ok = False
+                        else:
+                            any_ok = True
+                        r_id = f"{rid}_{no}"
+                        ctx[r_id] = ItemResult(
+                            r_id, "rule", ok=ok, value=float(val), unit="px",
+                            message=f"框{no}→{base}  " + (why or "")
+                                    + (f"  {rule.get('note')}" if rule.get("note") else ""))
+                    if not any_ok:
+                        all_ok = False
+                    continue
                 if it_a is None or it_b is None:
                     ctx[rid] = ItemResult(rid, "rule", ok=False, message="起始/结束框未选")
                     continue
