@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v64  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v65  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1058,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v64  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v65  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1122,6 +1122,11 @@ class MainWindow(QMainWindow):
                 self._log_crash("检测一次", exc)
                 continue
             st.runner.publish(result, annotated, base)
+            try:
+                self._diag(f"检测一次：frame={base.shape[1]}x{base.shape[0]} "
+                           f"结果项={len(result.results)} 规则={len(self.recipe.rules or [])}")
+            except Exception:                        # noqa: BLE001
+                pass
             self._last_view_frame = base
             self.tiles[self.active].view.set_frame(annotated)
             self._fill_result_table(result.as_dict())
@@ -1179,6 +1184,7 @@ class MainWindow(QMainWindow):
                         if _fw and self.recipe.frame_width and _fw != self.recipe.frame_width:
                             try:
                                 self.recipe.scale_to(_fw)
+                                self._diag(f"缩放配方：{self.recipe.frame_width} ← frame {_fw}")
                                 self._sync_view()
                                 self.statusBar().showMessage(
                                     f"画面宽度 {self.recipe.frame_width} → {_fw}，检测框已按比例缩放", 5000)
@@ -3023,7 +3029,7 @@ class MainWindow(QMainWindow):
                 _, bw = cv2.threshold(gray, max(0, min(255, lo)), 255, cv2.THRESH_BINARY_INV)
             # 红色半透明覆盖选中像素（现场最直观）
             # 现场要求：红色 = 被阈值排除掉的像素（白抓取时黑色部被盖红，反之亦然）
-            mask = bw <= 0
+            mask = bw > 0            # 把"会被抓取"的像素涂红（现场看的是选中区）
             if mask.any():
                 _tinted += int(mask.sum())
                 sub[mask] = (sub[mask] * 0.45 + np.array([0, 0, 255]) * 0.55).astype(np.uint8)
@@ -3034,7 +3040,11 @@ class MainWindow(QMainWindow):
                 n += 1
                 cv2.drawContours(img, [c + (x, y)], -1, (0, 255, 0), 1)
         try:
-            self._diag(f"预览：frame={base.shape[1]}x{base.shape[0]} 框={n} 红像素={_tinted}")
+            _now2 = time.time()
+            if _now2 - getattr(self, "_diag_ts", 0) > 1.0:
+                self._diag_ts = _now2
+                self._diag(f"预览：frame={base.shape[1]}x{base.shape[0]} 框={n} 红像素={_tinted}"
+                           f" 阈值={lo}~{hi}")
         except Exception:                            # noqa: BLE001
             pass
         if n == 0:

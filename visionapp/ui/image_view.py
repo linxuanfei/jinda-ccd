@@ -544,8 +544,10 @@ class ImageView(QGraphicsView):
             self._image_rect = QRectF(0, 0, w, h)
             # 场景比图片大一圈：铺满时也能用鼠标拖动画面（否则没有可滚动区域）
             self._scene.setSceneRect(self._image_rect.adjusted(-w * 0.5, -h * 0.5, w * 0.5, h * 0.5))
-            if self._auto_fit:
-                self.fitInView(getattr(self, "_image_rect", self._scene.sceneRect()), Qt.AspectRatioMode.KeepAspectRatio)
+            if self._auto_fit and not getattr(self, "_fitted_once", False):
+                self.fitInView(getattr(self, "_image_rect", self._scene.sceneRect()),
+                               Qt.AspectRatioMode.KeepAspectRatio)
+                self._fitted_once = True
 
     def resizeEvent(self, event) -> None:          # noqa: N802
         super().resizeEvent(event)
