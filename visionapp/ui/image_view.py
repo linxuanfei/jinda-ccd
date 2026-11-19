@@ -521,7 +521,12 @@ class ImageView(QGraphicsView):
         """当前画面尺寸（宽, 高）；没有帧时返回 (0, 0)。"""
         return (int(self._frame_size[0]), int(self._frame_size[1]))
 
+    def frame_bgr(self):
+        """当前画面上显示的这一帧（BGR）。阈值预览等需要"就用手上这张图"时用。"""
+        return getattr(self, "_last_bgr", None)
+
     def set_frame(self, bgr: np.ndarray) -> None:
+        self._last_bgr = bgr
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         # 不 copy：QPixmap.fromImage 会自己拷一份，rgb 在本函数内保持存活

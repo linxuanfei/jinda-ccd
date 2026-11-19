@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v61  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v62  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -1058,7 +1058,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v61  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v62  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -2912,9 +2912,17 @@ class MainWindow(QMainWindow):
         import cv2
 
         st = self.station
-        frame = getattr(st.runner.snapshot(), "last_frame", None) or getattr(self, "_last_view_frame", None)
+        frame = getattr(st.runner.snapshot(), "last_frame", None)
+        if frame is None:
+            try:
+                frame = self.tiles[self.active].view.frame_bgr()
+            except Exception:                            # noqa: BLE001
+                frame = None
+        if frame is None:
+            frame = getattr(self, "_last_view_frame", None)
         if frame is None:
             self.statusBar().showMessage("还没有画面：先点【检测一次】或连接相机", 4000)
+            self._diag("预览：没有可用画面")
             return
         base = frame.bgr if hasattr(frame, "bgr") else frame
         if base is None:
@@ -2922,6 +2930,8 @@ class MainWindow(QMainWindow):
         img = base.copy()
         self._preview_until = _t.time() + 1.5
         n = 0
+        _tinted = 0
+        _outside = 0
         for it in self.recipe.items:
             roi = it.roi
             if roi is None or roi.is_line() or it.type not in ("find_blobs", ""):
@@ -2953,6 +2963,7 @@ class MainWindow(QMainWindow):
             # 现场要求：红色 = 被阈值排除掉的像素（白抓取时黑色部被盖红，反之亦然）
             mask = bw <= 0
             if mask.any():
+                _tinted += int(mask.sum())
                 sub[mask] = (sub[mask] * 0.45 + np.array([0, 0, 255]) * 0.55).astype(np.uint8)
             cnts, _ = cv2.findContours(bw, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts:
@@ -2960,6 +2971,15 @@ class MainWindow(QMainWindow):
                     continue
                 n += 1
                 cv2.drawContours(img, [c + (x, y)], -1, (0, 255, 0), 1)
+        try:
+            self._diag(f"预览：frame={base.shape[1]}x{base.shape[0]} 框={n} 红像素={_tinted}")
+        except Exception:                            # noqa: BLE001
+            pass
+        if n == 0:
+            self.statusBar().showMessage(
+                f"没有可预览的像素：画面 {base.shape[1]}x{base.shape[0]}，阈值 {lo}~{hi}"
+                f"（框={len(self.recipe.items)}）", 6000)
+            return
         self.view.set_frame(img)
         self.statusBar().showMessage(f"阈值预览：选中 {n} 个连通域（红色=选中像素）", 4000)
 
@@ -3080,6 +3100,16 @@ class MainWindow(QMainWindow):
                 self._log_crash("item menu", exc)
 
         QTimer.singleShot(0, _open)
+
+    def _diag(self, text: str) -> None:
+        """把现场诊断信息追加到 logs/gui.log（排查用，不影响界面）。"""
+        try:
+            d = os.path.join(BASE_DIR, "logs")
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "gui.log"), "a", encoding="utf-8") as fp:
+                fp.write(f"[{time.strftime('%H:%M:%S')}] {text}\n")
+        except Exception:                                # noqa: BLE001
+            pass
 
     def _log_crash(self, where: str, exc: BaseException) -> None:
         """把异常写进 logs/crash-日期.log，方便现场排查。"""
