@@ -1200,10 +1200,11 @@ class ImageView(QGraphicsView):
             start = self._sel_start
             self._sel_start = None
             picked: list[str] = []
-            for store in (self._rois, self._lines):
-                for key, item in store.items():
-                    if box.intersects(item.sceneBoundingRect()) and key not in picked:
-                        picked.append(key)
+            ctrl = getattr(self, "_last_modifiers", None)
+            # 框选只选矩形框；直线必须单独点击（否则拉一个框选就把整条线选中）
+            for key, item in self._rois.items():
+                if box.intersects(item.sceneBoundingRect()) and key not in picked:
+                    picked.append(key)
             # 现场约定：左键从左往右划 = 选中；从右往左划 = 取消选中
             left_to_right = True
             if start is not None:

@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.merged_alarm = Alarm(AlarmConfig.from_dict(self.settings.alarm_cfg))
 
         self.manager = self._make_manager(line, recipe, source, path)
-        self.setWindowTitle("JD.vision   v70  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v71  (2026-11-19)")
         self.resize(1720, 1000)
         self.showMaximized()          # 现场要求：打开就最大化
 
@@ -821,6 +821,7 @@ class MainWindow(QMainWindow):
         theme.set_class(self.lbl_rules, "hint")
         _f = self.lbl_rules.font()
         _f.setPixelSize(16)
+        self.lbl_rules.setStyleSheet("font-size:16px;")
         self.lbl_rules.setFont(_f)
         self.lbl_rules.setMinimumHeight(26)
         self.lbl_rules.setWordWrap(True)
@@ -1071,7 +1072,7 @@ class MainWindow(QMainWindow):
         self._sync_view()
         self._refresh_calib_label()
 
-        self.setWindowTitle("JD.vision   v70  (2026-11-19)")
+        self.setWindowTitle("JD.vision   v71  (2026-11-19)")
         errors = self.manager.open_all()
         for e in errors:
             self.statusBar().showMessage(f"机位打开失败：{e}", 8000)
@@ -1460,7 +1461,7 @@ class MainWindow(QMainWindow):
                 pass
 
         def add_row(note: str, obj: str, base: str, design: str,
-                    value: str, verdict: str, ok, seq: str = "") -> None:
+                    value: str, verdict: str, ok, seq: str = "", tip: str = "") -> None:
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
             for c, txt in enumerate((note, obj, base, design, value, verdict)):
@@ -1480,6 +1481,11 @@ class MainWindow(QMainWindow):
                     self.tbl.setVerticalHeaderItem(r, QTableWidgetItem(seq))
                 else:
                     hi.setText(seq)
+            if tip:
+                for c in range(6):
+                    _it = self.tbl.item(r, c)
+                    if _it is not None:
+                        _it.setToolTip(tip)
 
         if not rules:
             return                                       # 新建模板：结果表保持空白
@@ -1514,7 +1520,7 @@ class MainWindow(QMainWindow):
                         add_row(note, f"{no}", base, design,
                                 "-" if val is None else f"{float(val):.3f}",
                                 {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-"),
-                                res.get("ok"), str(seq))
+                                res.get("ok"), str(seq), str(res.get("message") or ""))
                 else:
                     res = items.get(f"rule{i}") or {}
                     seq += 1
@@ -1523,7 +1529,7 @@ class MainWindow(QMainWindow):
                     add_row(note, _obj, base, design,
                             "-" if val is None else f"{float(val):.3f}",
                             {True: "OK", False: "NG", None: "-"}.get(res.get("ok"), "-"),
-                            res.get("ok"), str(seq))
+                            res.get("ok"), str(seq), str(res.get("message") or ""))
 
     def open_source_dialog(self) -> None:
         """换相机。
@@ -2469,7 +2475,9 @@ class MainWindow(QMainWindow):
         """用最近一帧原图重跑一次检测并显示（编辑框后清掉旧的红框残影）。"""
         st = self.station
         snap = st.runner.snapshot()
-        frame = getattr(snap, "last_frame", None)
+        frame = getattr(self, "_raw_frame", None)
+        if frame is None:
+            frame = getattr(snap, "last_frame", None)
         if frame is None:
             frame = getattr(self, "_last_view_frame", None)
         if frame is None:
